@@ -138,6 +138,38 @@ export default function Home() {
     [categoryFilter, decertifiedEstablishments],
   )
 
+  const certificationSummaries = useMemo(() => {
+    const counts = new Map<
+      string,
+      {
+        count: number
+        icon: { src: string; alt: string }
+      }
+    >()
+
+    filteredVisibleEstablishments.forEach((establishment) => {
+      const source = typeof establishment?.source === 'string' ? establishment.source : null
+      if (!source) return
+
+      const normalized = source.trim().toLowerCase()
+      if (!normalized) return
+
+      const icon = getCertificationIcon(source)
+      if (!icon) return
+
+      const snapshot = counts.get(normalized)
+      if (snapshot) {
+        snapshot.count += 1
+      } else {
+        counts.set(normalized, { count: 1, icon })
+      }
+    })
+
+    return Array.from(counts.entries())
+      .map(([key, value]) => ({ key, ...value }))
+      .sort((a, b) => b.count - a.count)
+  }, [filteredVisibleEstablishments])
+
   const visibleWithMeta = useMemo(() => {
     return filteredVisibleEstablishments
       .map((establishment) => {
@@ -230,7 +262,7 @@ export default function Home() {
       <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-16 space-y-20">
         {/* Établissements visibles */}
         <section>
-          <div className="flex items-center justify-between mb-8">
+          <div className="mb-8 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white">
                 Établissements certifiés
@@ -239,6 +271,26 @@ export default function Home() {
                 {visibleWithMeta.length} {visibleWithMeta.length > 1 ? 'établissements trouvés' : 'établissement trouvé'}
               </p>
             </div>
+            {certificationSummaries.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-4">
+                {certificationSummaries.map(({ key, count, icon }) => (
+                  <div
+                    key={key}
+                    className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
+                  >
+                    <span className="flex size-11 items-center justify-center rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950">
+                      <img src={icon.src} alt={icon.alt} className="h-7 w-7 rounded-full object-contain" />
+                    </span>
+                    <div className="leading-tight">
+                      <p className="text-sm font-semibold text-zinc-900 dark:text-white">{icon.alt}</p>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                        {count} {count > 1 ? 'établissements visibles' : 'établissement visible'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {visibleWithMeta.length === 0 ? (
