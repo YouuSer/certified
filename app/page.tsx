@@ -1,5 +1,6 @@
 'use client'
 
+import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
 import { useCallback, useMemo, useState } from 'react'
 import MapView from './components/MapView'
 
@@ -29,6 +30,13 @@ const CERTIFICATION_ICON_MAP: Record<string, { src: string; alt: string }> = {
   achada: { src: '/icons/achahada.png', alt: 'Certification Achada' },
   ach: { src: '/icons/ach.png', alt: 'Certification ACH' },
 }
+
+const CATEGORY_FILTER_OPTIONS: Array<{ value: CategoryFilter; label: string }> = [
+  { value: 'all', label: 'Tous' },
+  { value: 'restaurants', label: 'Restaurants' },
+  { value: 'boucheries', label: 'Boucheries' },
+  { value: 'others', label: 'Autres' },
+]
 
 const getCertificationIcon = (source?: string) => {
   if (!source) return null
@@ -80,6 +88,7 @@ const getDateMeta = (
 export default function Home() {
   const [visibleEstablishments, setVisibleEstablishments] = useState<Establishment[]>([])
   const [decertifiedEstablishments, setDecertifiedEstablishments] = useState<DecertifiedEstablishment[]>([])
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   
   const handleVisibleChange = useCallback((items: any[]) => {
     setVisibleEstablishments(items as Establishment[])
@@ -101,8 +110,36 @@ export default function Home() {
     [],
   )
 
+  const categoryCounts = useMemo<Record<CategoryFilter, number>>(() => {
+    const source = [...visibleEstablishments, ...decertifiedEstablishments]
+    return {
+      all: source.length,
+      restaurants: source.filter((establishment) => matchesCategoryFilter(establishment, 'restaurants'))
+        .length,
+      boucheries: source.filter((establishment) => matchesCategoryFilter(establishment, 'boucheries'))
+        .length,
+      others: source.filter((establishment) => matchesCategoryFilter(establishment, 'others')).length,
+    }
+  }, [decertifiedEstablishments, visibleEstablishments])
+
+  const filteredVisibleEstablishments = useMemo(
+    () =>
+      visibleEstablishments.filter((establishment) =>
+        matchesCategoryFilter(establishment, categoryFilter),
+      ),
+    [categoryFilter, visibleEstablishments],
+  )
+
+  const filteredDecertifiedEstablishments = useMemo(
+    () =>
+      decertifiedEstablishments.filter((establishment) =>
+        matchesCategoryFilter(establishment, categoryFilter),
+      ),
+    [categoryFilter, decertifiedEstablishments],
+  )
+
   const visibleWithMeta = useMemo(() => {
-    return visibleEstablishments
+    return filteredVisibleEstablishments
       .map((establishment) => {
         const rawDate = getEntryDateValue(establishment)
         const { formatted, sortValue } = getDateMeta(rawDate, dateFormatter)
@@ -114,10 +151,10 @@ export default function Home() {
         }
       })
       .sort((a, b) => b.sortValue - a.sortValue)
-  }, [dateFormatter, visibleEstablishments])
+  }, [dateFormatter, filteredVisibleEstablishments])
 
   const decertifiedWithMeta = useMemo(() => {
-    return decertifiedEstablishments
+    return filteredDecertifiedEstablishments
       .map((establishment) => {
         const rawDate = getExitDateValue(establishment)
         const { formatted, sortValue } = getDateMeta(rawDate, dateFormatter, 'Date de sortie inconnue')
@@ -128,7 +165,7 @@ export default function Home() {
         }
       })
       .sort((a, b) => b.sortValue - a.sortValue)
-  }, [dateFormatter, decertifiedEstablishments])
+  }, [dateFormatter, filteredDecertifiedEstablishments])
 
   return (
     <div className="min-h-screen bg-white dark:bg-black">
@@ -149,10 +186,41 @@ export default function Home() {
             </p>
           </div>
 
+          <div className="flex flex-wrap items-center justify-center gap-3 mb-10 sm:mb-12">
+            {CATEGORY_FILTER_OPTIONS.map(({ value, label }) => {
+              const isActive = value === categoryFilter
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setCategoryFilter(value)}
+                  aria-pressed={isActive}
+                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                    isActive
+                      ? 'border-blue-500/80 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-[0_8px_16px_rgba(37,99,235,0.25)] dark:border-blue-400/70'
+                      : 'border-white/50 bg-white/70 text-zinc-700 shadow-[0_4px_12px_rgba(15,23,42,0.08)] hover:bg-white/90 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-200 dark:hover:bg-zinc-900/80 dark:shadow-[0_4px_12px_rgba(15,23,42,0.45)]'
+                  }`}
+                >
+                  <span className="font-semibold">{label}</span>
+                  <span
+                    className={`inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-full border px-2 text-xs font-semibold ${
+                      isActive
+                        ? 'border-white/50 bg-white/20 text-white'
+                        : 'border-white/60 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
+                    }`}
+                  >
+                    {categoryCounts[value]}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
           <div className="rounded-3xl overflow-hidden shadow-2xl border border-black/5 dark:border-white/10">
             <MapView
               onVisibleCertifiedChange={handleVisibleChange}
               onDecertifiedChange={handleDecertifiedChange}
+              categoryFilter={categoryFilter}
             />
           </div>
         </div>

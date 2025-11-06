@@ -1,5 +1,4 @@
 <!-- TODO maj quotidienne des données (via un cron une fois deployé) -->
-<!-- TODO filtre par catégorie -->
 <!-- TODO clustering des points pour les zones denses -->
 <!-- TODO custom icons par catégorie -->
 <!-- TODO infowindow custom avec plus d'infos -->

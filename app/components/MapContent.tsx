@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css'
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 
+import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
 import { db } from '@/lib/firebase'
 
 const achahadaIcon = new L.DivIcon({
@@ -268,11 +269,13 @@ const normalizeSource = (source?: string) => {
 export type MapContentProps = {
   onVisibleCertifiedChange?: (value: any[]) => void
   onDecertifiedChange?: (value: any[]) => void
+  categoryFilter?: CategoryFilter
 }
 
 export default function MapContent({
   onVisibleCertifiedChange,
   onDecertifiedChange,
+  categoryFilter = 'all',
 }: MapContentProps) {
   const [points, setPoints] = useState<any[]>([])
   const [darkMode, setDarkMode] = useState(false)
@@ -299,6 +302,11 @@ export default function MapContent({
     }
     fetchData()
   }, [])
+
+  const filteredPoints = useMemo(() => {
+    if (categoryFilter === 'all') return points
+    return points.filter((point) => matchesCategoryFilter(point, categoryFilter))
+  }, [points, categoryFilter])
 
   useEffect(() => {
     if (!onDecertifiedChange) return
@@ -361,17 +369,23 @@ export default function MapContent({
         }}
       >
         <TileLayer url={tileUrl} />
-        <ClusteredMarkers points={points} onVisibleCertifiedChange={onVisibleCertifiedChange} />
+        <ClusteredMarkers
+          displayPoints={filteredPoints}
+          allPoints={points}
+          onVisibleCertifiedChange={onVisibleCertifiedChange}
+        />
       </MapContainer>
     </div>
   )
 }
 
 function ClusteredMarkers({
-  points,
+  displayPoints,
+  allPoints,
   onVisibleCertifiedChange,
 }: {
-  points: any[]
+  displayPoints: any[]
+  allPoints: any[]
   onVisibleCertifiedChange?: (value: any[]) => void
 }) {
   const map = useMap()
@@ -389,13 +403,13 @@ function ClusteredMarkers({
 
   const clustered = useMemo(() => {
     if (!map) return []
-    return clusterPoints(points, map)
-  }, [map, points, refreshKey])
+    return clusterPoints(displayPoints, map)
+  }, [map, displayPoints, refreshKey])
 
   const visibleCertified = useMemo(() => {
     if (!map) return []
     const bounds = map.getBounds()
-    return points.filter((point) => {
+    return allPoints.filter((point) => {
       if (
         !point ||
         typeof point.lat !== 'number' ||
@@ -407,7 +421,7 @@ function ClusteredMarkers({
       }
       return bounds.contains([point.lat, point.lng])
     })
-  }, [map, points, refreshKey])
+  }, [map, allPoints, refreshKey])
 
   useEffect(() => {
     if (onVisibleCertifiedChange) {
