@@ -23,6 +23,19 @@ type DecertifiedEstablishment = Establishment & {
   exitDate?: unknown
 }
 
+const CERTIFICATION_ICON_MAP: Record<string, { src: string; alt: string }> = {
+  avs: { src: '/icons/avs.png', alt: 'Certification AVS' },
+  achahada: { src: '/icons/achahada.png', alt: 'Certification Achahada' },
+  achada: { src: '/icons/achahada.png', alt: 'Certification Achada' },
+  ach: { src: '/icons/ach.png', alt: 'Certification ACH' },
+}
+
+const getCertificationIcon = (source?: string) => {
+  if (!source) return null
+  const normalized = source.trim().toLowerCase()
+  return CERTIFICATION_ICON_MAP[normalized] ?? null
+}
+
 const getEntryDateValue = (establishment: Establishment) =>
   establishment?.entryDate ??
   establishment?.certifiedAt ??
@@ -177,6 +190,11 @@ export default function Home() {
                 const categories = Array.isArray(establishment?.categories)
                   ? establishment.categories.filter(Boolean)
                   : []
+                const certificationSource =
+                  typeof establishment?.source === 'string' && establishment.source.trim().length > 0
+                    ? establishment.source
+                    : undefined
+                const certificationIcon = getCertificationIcon(certificationSource)
 
                 return (
                   <div
@@ -190,10 +208,22 @@ export default function Home() {
                         <h3 className="text-lg font-semibold text-zinc-900 dark:text-white leading-tight flex-1">
                           {establishment?.name ?? 'Nom inconnu'}
                         </h3>
-                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-green-600 dark:text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                          </svg>
+                        <div className="flex-shrink-0">
+                          {certificationIcon ? (
+                            <span className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                              <img
+                                src={certificationIcon.src}
+                                alt={certificationIcon.alt}
+                                className="rounded-full object-contain"
+                              />
+                            </span>
+                          ) : (
+                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
+                              <svg className="h-5 w-5 text-green-600 dark:text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                              </svg>
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -204,9 +234,6 @@ export default function Home() {
                       <div className="flex flex-wrap gap-2 pt-2">
                         <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400">
                           {formattedDate}
-                        </span>
-                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400">
-                          {establishment?.source ?? 'Source inconnue'}
                         </span>
                         {categories.map((category: string) => (
                           <span
@@ -255,6 +282,11 @@ export default function Home() {
                 const categories = Array.isArray(establishment?.categories)
                   ? establishment.categories.filter(Boolean)
                   : []
+                const certificationSource =
+                  typeof establishment?.source === 'string' && establishment.source.trim().length > 0
+                    ? establishment.source
+                    : undefined
+                const certificationIcon = getCertificationIcon(certificationSource)
 
                 return (
                   <div
@@ -268,10 +300,22 @@ export default function Home() {
                         <h3 className="text-lg font-semibold text-zinc-900 dark:text-white leading-tight flex-1">
                           {establishment?.name ?? 'Nom inconnu'}
                         </h3>
-                        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                          <svg className="w-5 h-5 text-red-600 dark:text-red-500" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                          </svg>
+                        <div className="flex-shrink-0">
+                          {certificationIcon ? (
+                            <span className="flex size-11 items-center justify-center rounded-full border border-red-200 bg-white shadow-sm dark:border-red-900 dark:bg-zinc-900">
+                              <img
+                                src={certificationIcon.src}
+                                alt={certificationIcon.alt}
+                                className="rounded-full object-contain"
+                              />
+                            </span>
+                          ) : (
+                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10">
+                              <svg className="w-5 h-5 text-red-600 dark:text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                              </svg>
+                            </span>
+                          )}
                         </div>
                       </div>
 
@@ -282,9 +326,6 @@ export default function Home() {
                       <div className="flex flex-wrap gap-2 pt-2">
                         <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400">
                           Sorti : {formattedDate}
-                        </span>
-                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-400">
-                          {establishment?.source ?? 'Source inconnue'}
                         </span>
                         {categories.map((category: string) => (
                           <span
