@@ -324,6 +324,43 @@ const ChangeTypeBadge = ({ kind }: { kind: RecentChange['kind'] }) => (
   </span>
 )
 
+const CHANGE_FILTERS: Array<{ label: string; value: RecentChange['kind'] | 'all' }> = [
+  { label: 'Tous', value: 'all' },
+  { label: 'Ajouts', value: 'added' },
+  { label: 'Modifications', value: 'modified' },
+  { label: 'Suppressions', value: 'removed' },
+]
+
+const CERTIFICATION_ICON_MAP: Record<string, { src: string; alt: string }> = {
+  achahada: { src: '/icons/achahada.png', alt: 'Certification Achahada' },
+  avs: { src: '/icons/avs.png', alt: 'Certification AVS' },
+}
+
+const CertificationIcon = ({ source }: { source?: string }) => {
+  if (!source) {
+    return <span className="text-xs text-zinc-400">—</span>
+  }
+
+  const normalized = source.trim().toLowerCase()
+  const icon = CERTIFICATION_ICON_MAP[normalized]
+
+  if (!icon) {
+    return (
+      <span className="text-xs font-medium capitalize text-zinc-600 dark:text-zinc-300">
+        {source}
+      </span>
+    )
+  }
+
+  return (
+    <span className="inline-flex items-center">
+      <span className="flex size-8 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+        <img src={icon.src} alt={icon.alt} className="rounded-full object-contain" />
+      </span>
+    </span>
+  )
+}
+
 const formatFilters = (filters: unknown): string => {
   if (Array.isArray(filters)) {
     const cleaned = filters
@@ -357,6 +394,7 @@ export default function FirebaseDiagnosticsPage() {
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({})
   const [pageSize, setPageSize] = useState(10)
   const [currentPage, setCurrentPage] = useState(1)
+  const [filterKind, setFilterKind] = useState<RecentChange['kind'] | 'all'>('all')
 
   useEffect(() => {
     const loadStats = async () => {
@@ -483,10 +521,28 @@ export default function FirebaseDiagnosticsPage() {
     setExpandedRows({})
   }, [stats])
 
+  const filteredChanges = useMemo(() => {
+    if (filterKind === 'all') return recentChanges
+    return recentChanges.filter((change) => change.kind === filterKind)
+  }, [recentChanges, filterKind])
+
+  const changesCountByKind = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: recentChanges.length,
+      added: 0,
+      modified: 0,
+      removed: 0,
+    }
+    for (const change of recentChanges) {
+      counts[change.kind] = (counts[change.kind] ?? 0) + 1
+    }
+    return counts
+  }, [recentChanges])
+
   const totalPages = useMemo(() => {
-    if (recentChanges.length === 0) return 1
-    return Math.max(1, Math.ceil(recentChanges.length / pageSize))
-  }, [recentChanges.length, pageSize])
+    if (filteredChanges.length === 0) return 1
+    return Math.max(1, Math.ceil(filteredChanges.length / pageSize))
+  }, [filteredChanges.length, pageSize])
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -494,11 +550,19 @@ export default function FirebaseDiagnosticsPage() {
     }
   }, [currentPage, totalPages])
 
+  useEffect(() => {
+    setCurrentPage(1)
+    setExpandedRows({})
+  }, [filterKind, pageSize])
+
   const paginatedChanges = useMemo(() => {
     const startIndex = (currentPage - 1) * pageSize
     const endIndex = startIndex + pageSize
-    return recentChanges.slice(startIndex, endIndex)
-  }, [recentChanges, currentPage, pageSize])
+    return filteredChanges.slice(startIndex, endIndex)
+  }, [filteredChanges, currentPage, pageSize])
+
+  const noChangesMessage =
+    recentChanges.length === 0 ? 'Aucun changement enregistré.' : 'Aucun changement pour ce filtre.'
 
   const toggleRow = (changeId: string) => {
     setExpandedRows((previous) => ({
@@ -547,19 +611,51 @@ export default function FirebaseDiagnosticsPage() {
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-medium">Derniers changements</h2>
                 <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
-                  {recentChanges.length.toLocaleString('fr-FR')} changement(s)
+                  {filteredChanges.length.toLocaleString('fr-FR')} changement(s)
                 </span>
               </div>
-              {recentChanges.length === 0 ? (
-                <p className="mt-4 text-sm text-zinc-500 dark:text-zinc-400">
-                  Aucun changement enregistré.
-                </p>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                {CHANGE_FILTERS.map((option) => {
+                  const isActive = filterKind === option.value
+                  const count =
+                    option.value === 'all'
+                      ? changesCountByKind.all
+                      : changesCountByKind[option.value] ?? 0
+
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setFilterKind(option.value)}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                        isActive
+                          ? 'border-zinc-900 bg-zinc-900 text-white shadow-sm dark:border-zinc-100 dark:bg-zinc-100 dark:text-zinc-900'
+                          : 'border-zinc-200 text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      <span>{option.label}</span>
+                      <span
+                        className={`inline-flex min-w-[1.75rem] items-center justify-center rounded-full border px-2 py-0.5 text-[11px] ${
+                          isActive
+                            ? 'border-white/30 bg-white/20 text-white dark:border-zinc-900/40 dark:bg-zinc-900/30 dark:text-zinc-900'
+                            : 'border-zinc-200 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+                        }`}
+                      >
+                        {count.toLocaleString('fr-FR')}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+              {filteredChanges.length === 0 ? (
+                <p className="mt-6 text-sm text-zinc-500 dark:text-zinc-400">{noChangesMessage}</p>
               ) : (
                 <div className="mt-4 overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
                   <table className="min-w-full divide-y divide-zinc-200 text-sm dark:divide-zinc-800">
                     <thead className="bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
                       <tr>
                         <th className="px-4 py-3 text-left font-semibold">Établissement</th>
+                        <th className="px-4 py-3 text-left font-semibold"></th>
                         <th className="px-4 py-3 text-left font-semibold">Nature</th>
                         <th className="px-4 py-3 text-left font-semibold">Date</th>
                         <th className="px-4 py-3 text-right font-semibold">Détails</th>
@@ -578,6 +674,11 @@ export default function FirebaseDiagnosticsPage() {
                           establishment?.id ??
                           'Sans nom'
                         const details = formatEstablishmentDetails(establishment)
+                        const certificationSource =
+                          establishment?.source ??
+                          change.modification?.after?.source ??
+                          change.modification?.before?.source ??
+                          null
                         const isExpandable = change.kind === 'modified' && change.modification
                         const isExpanded = Boolean(expandedRows[change.changeId])
                         const categories = getCategories(establishment)
@@ -603,13 +704,16 @@ export default function FirebaseDiagnosticsPage() {
                                 </div>
                                 <CategoryBadges categories={categories} />
                               </td>
-                              <td className="px-4 py-3 align-top">
+                              <td className="px-4 py-3 align-center">
+                                <CertificationIcon source={certificationSource ?? undefined} />
+                              </td>
+                              <td className="px-4 py-3 align-center">
                                 <ChangeTypeBadge kind={change.kind} />
                               </td>
-                              <td className="px-4 py-3 align-top text-xs text-zinc-500 dark:text-zinc-400">
+                              <td className="px-4 py-3 align-center text-xs text-zinc-500 dark:text-zinc-400">
                                 {formattedDate}
                               </td>
-                              <td className="px-4 py-3 text-right align-top">
+                              <td className="px-4 py-3 text-right align-center">
                                 {isExpandable && (
                                   <button
                                     type="button"
@@ -628,7 +732,7 @@ export default function FirebaseDiagnosticsPage() {
                               <tr
                                 className="bg-zinc-50 dark:bg-zinc-900/60"
                               >
-                                <td colSpan={4} className="px-6 py-4 text-xs text-zinc-600 dark:text-zinc-300">
+                                <td colSpan={5} className="px-6 py-4 text-xs text-zinc-600 dark:text-zinc-300">
                                   {change.modification.changes.length > 0 ? (
                                     <dl className="grid gap-3 md:grid-cols-2">
                                       {change.modification.changes.map((changeItem, index) => {
@@ -665,7 +769,7 @@ export default function FirebaseDiagnosticsPage() {
                   </table>
                 </div>
               )}
-              {recentChanges.length > 0 && (
+              {filteredChanges.length > 0 && (
                 <div className="mt-4 flex flex-col gap-4 text-xs text-zinc-600 dark:text-zinc-300 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-2">
                     <label htmlFor="page-size" className="font-semibold">
