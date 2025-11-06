@@ -1,7 +1,7 @@
 'use client'
 
 import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './components/MapView'
 
 type Establishment = {
@@ -22,6 +22,11 @@ type Establishment = {
 
 type DecertifiedEstablishment = Establishment & {
   exitDate?: unknown
+}
+
+type Coordinates = {
+  lat: number
+  lng: number
 }
 
 const CERTIFICATION_ICON_MAP: Record<string, { src: string; alt: string }> = {
@@ -54,6 +59,62 @@ const getEntryDateValue = (establishment: Establishment) =>
 
 const getExitDateValue = (establishment: DecertifiedEstablishment) =>
   establishment?.exitDate ?? establishment?.updatedAt ?? null
+
+const DEG_TO_RAD = Math.PI / 180
+const EARTH_RADIUS_KM = 6371
+
+const computeDistanceMetadata = (
+  reference: Coordinates,
+  establishment: Establishment,
+): { distanceKm: number } | null => {
+  const lat =
+    typeof establishment?.lat === 'number' && !Number.isNaN(establishment.lat)
+      ? establishment.lat
+      : null
+  const lng =
+    typeof establishment?.lng === 'number' && !Number.isNaN(establishment.lng)
+      ? establishment.lng
+      : null
+
+  if (
+    lat === null ||
+    lng === null ||
+    Number.isNaN(reference.lat) ||
+    Number.isNaN(reference.lng)
+  ) {
+    return null
+  }
+
+  const originLat = reference.lat * DEG_TO_RAD
+  const targetLat = lat * DEG_TO_RAD
+  const deltaLat = (lat - reference.lat) * DEG_TO_RAD
+  const deltaLng = (lng - reference.lng) * DEG_TO_RAD
+
+  const sinLat = Math.sin(deltaLat * 0.5)
+  const sinLng = Math.sin(deltaLng * 0.5)
+  const a = sinLat * sinLat + Math.cos(originLat) * Math.cos(targetLat) * sinLng * sinLng
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)))
+  const distanceKm = EARTH_RADIUS_KM * c
+
+  if (!Number.isFinite(distanceKm)) {
+    return null
+  }
+
+  return { distanceKm }
+}
+
+const formatDistanceLabel = (distanceKm: number) => {
+  if (!Number.isFinite(distanceKm)) return null
+  if (distanceKm >= 100) {
+    return `${Math.round(distanceKm)} km`
+  }
+  if (distanceKm >= 1) {
+    return `${Number.parseFloat(distanceKm.toFixed(1))} km`
+  }
+  const meters = Math.round(distanceKm * 1000)
+  if (meters <= 0) return '<1 m'
+  return `${meters} m`
+}
 
 const getDateMeta = (
   value: unknown,
@@ -95,6 +156,40 @@ export default function Home() {
     lng: number
     timestamp: number
   } | null>(null)
+  const [userPosition, setUserPosition] = useState<Coordinates | null>(null)
+  const isUnmountedRef = useRef(false)
+
+  const requestUserLocation = useCallback(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setUserPosition(null)
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (isUnmountedRef.current) return
+        const { latitude, longitude } = position.coords
+        if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+          setUserPosition({ lat: latitude, lng: longitude })
+          return
+        }
+        setUserPosition(null)
+      },
+      () => {
+        if (isUnmountedRef.current) return
+        setUserPosition(null)
+      },
+      { enableHighAccuracy: true, maximumAge: 300_000, timeout: 5_000 },
+    )
+  }, [])
+
+  useEffect(() => {
+    isUnmountedRef.current = false
+    requestUserLocation()
+    return () => {
+      isUnmountedRef.current = true
+    }
+  }, [requestUserLocation])
   
   const handleVisibleChange = useCallback((items: any[]) => {
     setVisibleEstablishments(items as Establishment[])
@@ -206,15 +301,29 @@ export default function Home() {
       .map((establishment) => {
         const rawDate = getEntryDateValue(establishment)
         const { formatted, sortValue } = getDateMeta(rawDate, dateFormatter)
+        const distanceMeta = userPosition ? computeDistanceMetadata(userPosition, establishment) : null
+        const distanceKm = distanceMeta?.distanceKm ?? null
+        const distanceLabel = distanceKm !== null ? formatDistanceLabel(distanceKm) : null
         return {
           establishment,
           formattedDate: formatted,
           sortValue,
           rawDate,
+          distanceKm,
+          distanceLabel,
         }
       })
-      .sort((a, b) => b.sortValue - a.sortValue)
-  }, [dateFormatter, filteredVisibleEstablishments])
+      .sort((a, b) => {
+        if (userPosition) {
+          const left = typeof a.distanceKm === 'number' ? a.distanceKm : Number.POSITIVE_INFINITY
+          const right = typeof b.distanceKm === 'number' ? b.distanceKm : Number.POSITIVE_INFINITY
+          if (left !== right) {
+            return left - right
+          }
+        }
+        return b.sortValue - a.sortValue
+      })
+  }, [dateFormatter, filteredVisibleEstablishments, userPosition])
 
   const decertifiedWithMeta = useMemo(() => {
     return filteredDecertifiedEstablishments
@@ -287,6 +396,8 @@ export default function Home() {
               focusedEstablishment={focusedEstablishment}
               onClearFocus={clearFocus}
               onFocusEstablishment={focusOnEstablishment}
+              userLocation={userPosition}
+              onRequestUserLocation={requestUserLocation}
             />
           </div>
         </div>
@@ -340,7 +451,7 @@ export default function Home() {
             </div>
           ) : (
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {visibleWithMeta.map(({ establishment, formattedDate }) => {
+              {visibleWithMeta.map(({ establishment, formattedDate, distanceLabel }) => {
                 const categories = Array.isArray(establishment?.categories)
                   ? establishment.categories.filter(Boolean)
                   : []
@@ -394,7 +505,7 @@ export default function Home() {
                         {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
                       </p>
 
-                      <div className="flex flex-wrap gap-2 pt-2">
+                      <div className="flex flex-wrap items-center gap-2 pt-2">
                         <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400">
                           {formattedDate}
                         </span>
@@ -406,6 +517,11 @@ export default function Home() {
                             {category}
                           </span>
                         ))}
+                        {distanceLabel ? (
+                          <span className="ml-auto inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                            {distanceLabel}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>

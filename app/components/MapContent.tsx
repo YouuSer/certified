@@ -3,7 +3,7 @@
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 
 import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
@@ -321,6 +321,58 @@ const getMarkerIcon = (source?: string, focused = false) => {
   return icon
 }
 
+let userLocationIconCache: L.DivIcon | null = null
+
+const getUserLocationIcon = () => {
+  if (userLocationIconCache) return userLocationIconCache
+
+  const html = `
+    <div style="position: relative; width: 46px; height: 46px;">
+      <span style="
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 46px;
+        height: 46px;
+        margin-top: -23px;
+        margin-left: -23px;
+        border-radius: 50%;
+        background: rgba(37, 99, 235, 0.15);
+        animation: certified-user-pulse 2.4s ease-out infinite;
+      "></span>
+      <span style="
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 16px;
+        height: 16px;
+        margin-top: -8px;
+        margin-left: -8px;
+        border-radius: 50%;
+        background: #2563eb;
+        border: 3px solid #ffffff;
+        box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+      "></span>
+    </div>
+    <style>
+      @keyframes certified-user-pulse {
+        0% { transform: scale(0.5); opacity: 0.65; }
+        60% { transform: scale(1); opacity: 0; }
+        100% { transform: scale(1.1); opacity: 0; }
+      }
+    </style>
+  `
+
+  userLocationIconCache = new L.DivIcon({
+    html,
+    className: '',
+    iconSize: [46, 46],
+    iconAnchor: [23, 23],
+  })
+
+  return userLocationIconCache
+}
+
 export type MapContentProps = {
   onVisibleCertifiedChange?: (value: any[]) => void
   onDecertifiedChange?: (value: any[]) => void
@@ -333,6 +385,8 @@ export type MapContentProps = {
   } | null
   onClearFocus?: () => void
   onFocusEstablishment?: (value: { id?: string; name?: string; lat: number; lng: number }) => void
+  userLocation?: { lat?: number; lng?: number } | null
+  onRequestUserLocation?: () => void
 }
 
 export default function MapContent({
@@ -342,9 +396,12 @@ export default function MapContent({
   focusedEstablishment,
   onClearFocus,
   onFocusEstablishment,
+  userLocation,
+  onRequestUserLocation,
 }: MapContentProps) {
   const [points, setPoints] = useState<any[]>([])
   const [darkMode, setDarkMode] = useState(false)
+  const mapRef = useRef<L.Map | null>(null)
 
   // --- Détecter le thème système ---
   useEffect(() => {
@@ -353,6 +410,12 @@ export default function MapContent({
     const listener = (e: MediaQueryListEvent) => setDarkMode(e.matches)
     mq.addEventListener('change', listener)
     return () => mq.removeEventListener('change', listener)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      mapRef.current = null
+    }
   }, [])
 
   // --- Charger les points ---
@@ -422,7 +485,7 @@ export default function MapContent({
     : 'https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png'
 
   return (
-    <div style={{ width: '100%' }}>
+    <div style={{ width: '100%', position: 'relative' }}>
       <MapContainer
         center={[48.8566, 2.3522]}
         zoom={11}
@@ -432,6 +495,9 @@ export default function MapContent({
           borderRadius: '16px',
           overflow: 'hidden',
           boxShadow: '0 8px 20px rgba(15, 23, 42, 0.12)',
+        }}
+        whenCreated={(mapInstance) => {
+          mapRef.current = mapInstance
         }}
       >
         <TileLayer url={tileUrl} />
@@ -444,7 +510,13 @@ export default function MapContent({
           onClearFocus={onClearFocus}
           onFocusEstablishment={onFocusEstablishment}
         />
+        {userLocation ? <UserLocationMarker location={userLocation} /> : null}
       </MapContainer>
+      <UserLocationButton
+        mapRef={mapRef}
+        location={userLocation}
+        onRequestUserLocation={onRequestUserLocation}
+      />
     </div>
   )
 }
@@ -806,4 +878,93 @@ function MapFocusController({
   }, [map, lat, lng, timestamp])
 
   return null
+}
+
+function UserLocationMarker({ location }: { location?: { lat?: number; lng?: number } | null }) {
+  const icon = useMemo(() => getUserLocationIcon(), [])
+
+  if (
+    !location ||
+    typeof location.lat !== 'number' ||
+    Number.isNaN(location.lat) ||
+    typeof location.lng !== 'number' ||
+    Number.isNaN(location.lng)
+  ) {
+    return null
+  }
+
+  return <Marker position={[location.lat, location.lng]} icon={icon} interactive={false} keyboard={false} />
+}
+
+function UserLocationButton({
+  mapRef,
+  location,
+  onRequestUserLocation,
+}: {
+  mapRef: MutableRefObject<L.Map | null>
+  location?: { lat?: number; lng?: number } | null
+  onRequestUserLocation?: () => void
+}) {
+  const hasLocation =
+    Boolean(location) &&
+    typeof location?.lat === 'number' &&
+    !Number.isNaN(location.lat) &&
+    typeof location?.lng === 'number' &&
+    !Number.isNaN(location.lng)
+
+  const handleClick = useCallback(() => {
+    const map = mapRef.current
+    if (!map) return
+
+    if (hasLocation && location) {
+      const safeMaxZoom = getSafeMaxZoom(map)
+      const currentZoom = map.getZoom()
+      const desiredZoom = Math.min(safeMaxZoom, Math.max(typeof currentZoom === 'number' ? currentZoom : 11, 15))
+      map.flyTo([location.lat!, location.lng!], desiredZoom, { animate: true })
+      return
+    }
+
+    if (onRequestUserLocation) {
+      onRequestUserLocation()
+    }
+  }, [hasLocation, location, mapRef, onRequestUserLocation])
+
+  const buttonClasses = [
+    'absolute bottom-8 right-8 z-[1000]',
+    'inline-flex size-10 items-center justify-center rounded-full',
+    'bg-white text-blue-600 shadow-lg ring-1 ring-black/10 transition',
+    'hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500',
+    'dark:bg-zinc-900 dark:text-blue-400 dark:ring-white/10 dark:hover:bg-zinc-800',
+  ].join(' ')
+
+  const iconOpacity = hasLocation ? 1 : 0.6
+
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      aria-label="Afficher ma position"
+      title="Centrer sur ma position"
+      className={buttonClasses}
+    >
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ opacity: iconOpacity }}
+        className="size-6"
+      >
+        <circle cx={12} cy={12} r={6.75} />
+        <circle cx={12} cy={12} r={2.5} fill="currentColor" />
+        <path d="M12 3v2.5" />
+        <path d="M12 18.5V21" />
+        <path d="M21 12h-2.5" />
+        <path d="M5.5 12H3" />
+     </svg>
+    </button>
+  )
 }
