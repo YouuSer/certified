@@ -54,7 +54,6 @@ type RecentChange = {
 }
 
 type DiagnosticsSnapshot = {
-  pointsCount: number
   establishmentsCount: number
   duplicatesCount: number
   duplicatesExamples: DuplicateSnapshot['examples']
@@ -374,12 +373,6 @@ export default function FirebaseDiagnosticsPage() {
           ...(d.data() as Establishment),
         }))
 
-        const uniqueNames = new Set(
-          establishments
-            .map((e) => e.name?.trim().toLowerCase())
-            .filter((e): e is string => Boolean(e)),
-        )
-
         const meta = metaSnapshot.exists()
           ? (metaSnapshot.data() as Partial<DiagnosticsSnapshot['metaCounts']> & {
               date?: string
@@ -458,8 +451,7 @@ export default function FirebaseDiagnosticsPage() {
         })
 
         setStats({
-          pointsCount: establishments.length,
-          establishmentsCount: uniqueNames.size,
+          establishmentsCount: establishments.length,
           duplicatesCount: latestDuplicates?.count ?? 0,
           duplicatesExamples: latestDuplicates?.examples ?? [],
           lastRefresh: meta?.date,
@@ -530,10 +522,9 @@ export default function FirebaseDiagnosticsPage() {
 
         {!loading && !error && stats && (
           <>
-            <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-              <StatCard label="Points" value={stats.pointsCount.toLocaleString('fr-FR')} />
+            <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
               <StatCard
-                label="Établissements uniques"
+                label="Établissements"
                 value={stats.establishmentsCount.toLocaleString('fr-FR')}
               />
               <StatCard
