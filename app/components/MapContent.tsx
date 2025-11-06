@@ -3,59 +3,16 @@
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
 
 import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
 import { db } from '@/lib/firebase'
 
-const achahadaIcon = new L.DivIcon({
-  html: `
-    <div style="
-      width: 40px;
-      height: 40px;
-      border-radius: 25%;
-      overflow: hidden;
-      box-shadow: 0 0 4px rgba(0,0,0,0.3);
-      background-color: oklch(98.5% 0 0);
-      display: flex; align-items: center; justify-content: center;
-    ">
-      <img
-        src="/icons/achahada.png"
-        style="width: 100%; height: 100%; object-fit: scale-down;"
-      />
-    </div>
-  `,
-  className: '',
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
-})
-
-const avsIcon = new L.DivIcon({
-  html: `
-    <div style="
-      width: 40px;
-      height: 40px;
-      border-radius: 25%;
-      overflow: hidden;
-      box-shadow: 0 0 4px rgba(0,0,0,0.3);
-    ">
-      <img
-        src="/icons/avs.png"
-        style="width: 100%; height: 100%; object-fit: cover;"
-      />
-    </div>
-  `,
-  className: '',
-  iconSize: [40, 40],
-  iconAnchor: [20, 40],
-  popupAnchor: [0, -40],
-})
-
 type ClusterIconKind = 'achahada' | 'avs' | 'mixed' | 'default'
 
 const clusterIconCache = new Map<string, L.DivIcon>()
+const markerIconCache = new Map<string, L.DivIcon>()
 
 const buildClusterIconHtml = (kind: ClusterIconKind, size: number) => {
   if (kind === 'achahada') {
@@ -258,6 +215,52 @@ const clusterPoints = (points: any[], map: L.Map): ClusterResult[] => {
   }))
 }
 
+const getPointIdentifier = (point: any) => {
+  if (!point) return undefined
+  if (typeof point.id === 'string' && point.id.trim().length > 0) return point.id
+  if (
+    typeof point.lat === 'number' &&
+    !Number.isNaN(point.lat) &&
+    typeof point.lng === 'number' &&
+    !Number.isNaN(point.lng)
+  ) {
+    return `${point.lat}-${point.lng}-${point.name ?? 'establishment'}`
+  }
+  return undefined
+}
+
+const matchesFocusedPoint = (
+  point: any,
+  target?: { id?: string; lat?: number; lng?: number } | null,
+) => {
+  if (!point || !target) return false
+  const pointId = getPointIdentifier(point)
+  if (pointId && typeof target.id === 'string' && target.id === pointId) {
+    return true
+  }
+  if (
+    typeof point.lat === 'number' &&
+    !Number.isNaN(point.lat) &&
+    typeof point.lng === 'number' &&
+    !Number.isNaN(point.lng) &&
+    typeof target.lat === 'number' &&
+    !Number.isNaN(target.lat) &&
+    typeof target.lng === 'number' &&
+    !Number.isNaN(target.lng)
+  ) {
+    return Math.abs(point.lat - target.lat) < 1e-6 && Math.abs(point.lng - target.lng) < 1e-6
+  }
+  return false
+}
+
+const getSafeMaxZoom = (map: L.Map) => {
+  const maxZoom = map.getMaxZoom()
+  if (typeof maxZoom === 'number' && Number.isFinite(maxZoom) && maxZoom > 0) {
+    return maxZoom
+  }
+  return 18
+}
+
 const normalizeSource = (source?: string) => {
   if (!source) return ''
   const lower = source.toLowerCase()
@@ -266,16 +269,79 @@ const normalizeSource = (source?: string) => {
   return lower
 }
 
+const getMarkerCacheKey = (sourceKey: string, focused: boolean) =>
+  `${sourceKey || 'default'}-${focused ? 'focused' : 'regular'}`
+
+const getMarkerIcon = (source?: string, focused = false) => {
+  const normalized = normalizeSource(source) || 'default'
+  const cacheKey = getMarkerCacheKey(normalized, focused)
+  const cached = markerIconCache.get(cacheKey)
+  if (cached) return cached
+
+  const baseSize = focused ? 52 : 40
+  const borderRadius = normalized === 'default' ? '50%' : '25%'
+  const focusRing = focused
+    ? 'box-shadow: 0 0 0 6px rgba(59,113,202,0.3), 0 12px 24px rgba(37, 99, 235, 0.25); transform: translateY(-1px);'
+    : 'box-shadow: 0 0 4px rgba(0,0,0,0.3);'
+
+  const getImageHtml = () => {
+    if (normalized === 'achahada') {
+      return `<img src="/icons/achahada.png" style="width: 100%; height: 100%; object-fit: contain;" />`
+    }
+    if (normalized === 'avs') {
+      return `<img src="/icons/avs.png" style="width: 100%; height: 100%; object-fit: cover;" />`
+    }
+    return `<div style="width: 50%; height: 50%; border-radius: 50%; background: #1f2937;"></div>`
+  }
+
+  const icon = new L.DivIcon({
+    html: `
+      <div style="
+        width: ${baseSize}px;
+        height: ${baseSize}px;
+        border-radius: ${borderRadius};
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: ${normalized === 'achahada' ? 'oklch(98.5% 0 0)' : '#ffffff'};
+        ${focusRing}
+        transition: all 0.2s ease-out;
+      ">
+        ${getImageHtml()}
+      </div>
+    `,
+    className: '',
+    iconSize: [baseSize, baseSize],
+    iconAnchor: [baseSize / 2, baseSize],
+    popupAnchor: [0, -baseSize],
+  })
+
+  markerIconCache.set(cacheKey, icon)
+  return icon
+}
+
 export type MapContentProps = {
   onVisibleCertifiedChange?: (value: any[]) => void
   onDecertifiedChange?: (value: any[]) => void
   categoryFilter?: CategoryFilter
+  focusedEstablishment?: {
+    id?: string
+    lat?: number
+    lng?: number
+    timestamp?: number
+  } | null
+  onClearFocus?: () => void
+  onFocusEstablishment?: (value: { id?: string; name?: string; lat: number; lng: number }) => void
 }
 
 export default function MapContent({
   onVisibleCertifiedChange,
   onDecertifiedChange,
   categoryFilter = 'all',
+  focusedEstablishment,
+  onClearFocus,
+  onFocusEstablishment,
 }: MapContentProps) {
   const [points, setPoints] = useState<any[]>([])
   const [darkMode, setDarkMode] = useState(false)
@@ -369,10 +435,14 @@ export default function MapContent({
         }}
       >
         <TileLayer url={tileUrl} />
+        <MapFocusController target={focusedEstablishment} />
         <ClusteredMarkers
           displayPoints={filteredPoints}
           allPoints={points}
           onVisibleCertifiedChange={onVisibleCertifiedChange}
+          focusedTarget={focusedEstablishment}
+          onClearFocus={onClearFocus}
+          onFocusEstablishment={onFocusEstablishment}
         />
       </MapContainer>
     </div>
@@ -383,23 +453,51 @@ function ClusteredMarkers({
   displayPoints,
   allPoints,
   onVisibleCertifiedChange,
+  focusedTarget,
+  onClearFocus,
+  onFocusEstablishment,
 }: {
   displayPoints: any[]
   allPoints: any[]
   onVisibleCertifiedChange?: (value: any[]) => void
+  focusedTarget?: { id?: string; lat?: number; lng?: number; timestamp?: number } | null
+  onClearFocus?: () => void
+  onFocusEstablishment?: (value: { id?: string; name?: string; lat: number; lng: number }) => void
 }) {
   const map = useMap()
   const [refreshKey, setRefreshKey] = useState(0)
+  const lastFocusTimestampRef = useRef<number | null>(null)
 
   useEffect(() => {
     const handleChange = () => setRefreshKey((value) => value + 1)
+    const handleInteraction = () => {
+      if (!focusedTarget) return
+      const lastFocus = lastFocusTimestampRef.current
+      if (lastFocus && Date.now() - lastFocus < 250) {
+        return
+      }
+      lastFocusTimestampRef.current = null
+      if (onClearFocus) onClearFocus()
+    }
     map.on('moveend', handleChange)
+    map.on('zoomstart', handleInteraction)
+    map.on('click', handleInteraction)
     map.on('zoomend', handleChange)
     return () => {
       map.off('moveend', handleChange)
+      map.off('zoomstart', handleInteraction)
+      map.off('click', handleInteraction)
       map.off('zoomend', handleChange)
     }
-  }, [map])
+  }, [map, onClearFocus, focusedTarget])
+
+  useEffect(() => {
+    if (focusedTarget?.timestamp) {
+      lastFocusTimestampRef.current = focusedTarget.timestamp
+      return
+    }
+    lastFocusTimestampRef.current = null
+  }, [focusedTarget])
 
   const clustered = useMemo(() => {
     if (!map) return []
@@ -429,63 +527,50 @@ function ClusteredMarkers({
     }
   }, [onVisibleCertifiedChange, visibleCertified])
 
+  useEffect(() => {
+    if (!map || !focusedTarget) return
+    const entry = clustered.find((item) =>
+      item.points.some((point) => matchesFocusedPoint(point, focusedTarget)),
+    )
+    if (!entry || !entry.isCluster) {
+      return
+    }
+    const safeMaxZoom = getSafeMaxZoom(map)
+    const currentZoom = map.getZoom()
+    if (typeof currentZoom !== 'number' || Number.isNaN(currentZoom) || currentZoom >= safeMaxZoom) {
+      return
+    }
+    lastFocusTimestampRef.current = Date.now()
+    const nextZoom = Math.min(currentZoom + 1, safeMaxZoom)
+    const targetLat =
+      typeof focusedTarget.lat === 'number' && !Number.isNaN(focusedTarget.lat)
+        ? focusedTarget.lat
+        : entry.lat
+    const targetLng =
+      typeof focusedTarget.lng === 'number' && !Number.isNaN(focusedTarget.lng)
+        ? focusedTarget.lng
+        : entry.lng
+    map.setView([targetLat, targetLng], nextZoom, { animate: true })
+  }, [clustered, focusedTarget, map])
+
   return (
     <>
       {clustered.map((entry) => {
         if (!entry.isCluster) {
           const point = entry.points[0]
           if (!point) return null
-          const categories = Array.isArray(point.categories) ? point.categories.filter(Boolean) : []
-          const icon = normalizeSource(point.source) === 'achahada' ? achahadaIcon : avsIcon
+          const markerId = getPointIdentifier(point)
+          const isFocused = matchesFocusedPoint(point, focusedTarget)
+          const icon = getMarkerIcon(point.source, isFocused)
           return (
-            <Marker
-              key={point.id ?? `${point.lat}-${point.lng}`}
-              position={[point.lat, point.lng]}
+            <EstablishmentMarker
+              key={markerId ?? `${point.lat}-${point.lng}`}
+              point={point}
               icon={icon}
-            >
-              <Popup>
-                <div style={{ fontSize: '0.9rem', lineHeight: 1.3 }}>
-                  <strong>{point.name}</strong>
-                  <br />
-                  <br />
-                  📍 {point.address}
-                  <br />
-                  🗺️ <b>Lat:</b> {point.lat.toFixed(5)} | <b>Lng:</b> {point.lng.toFixed(5)}
-                  <br />
-                  <div style={{ marginTop: '6px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        padding: '2px 6px',
-                        background: normalizeSource(point.source) === 'achahada' ? '#27AA85' : '#732f4f',
-                        color: 'white',
-                        borderRadius: '4px',
-                        fontSize: '0.75rem',
-                        fontWeight: 'bold',
-                      }}
-                    >
-                      {point.source}
-                    </span>
-                    {categories.map((category: string) => (
-                      <span
-                        key={`${point.id ?? point.name}-category-${category}`}
-                        style={{
-                          display: 'inline-block',
-                          padding: '2px 6px',
-                          background: '#6b7280',
-                          color: 'white',
-                          borderRadius: '4px',
-                          fontSize: '0.75rem',
-                          fontWeight: 'bold',
-                        }}
-                      >
-                        {category}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </Popup>
-            </Marker>
+              isFocused={isFocused}
+              onClearFocus={onClearFocus}
+              onFocusEstablishment={onFocusEstablishment}
+            />
           )
         }
 
@@ -524,6 +609,7 @@ function ClusteredMarkers({
             icon={icon}
             eventHandlers={{
               click: () => {
+                if (onClearFocus) onClearFocus()
                 map.setView([entry.lat, entry.lng], zoomTarget, { animate: true })
               },
             }}
@@ -584,4 +670,140 @@ function ClusteredMarkers({
       })}
     </>
   )
+}
+
+function EstablishmentMarker({
+  point,
+  icon,
+  isFocused,
+  onClearFocus,
+  onFocusEstablishment,
+}: {
+  point: any
+  icon: L.DivIcon
+  isFocused: boolean
+  onClearFocus?: () => void
+  onFocusEstablishment?: (value: { id?: string; name?: string; lat: number; lng: number }) => void
+}) {
+  const markerRef = useRef<L.Marker | null>(null)
+
+  useEffect(() => {
+    const marker = markerRef.current
+    if (!marker) return
+    marker.setZIndexOffset(isFocused ? 1000 : 0)
+    if (isFocused) {
+      marker.openPopup()
+    }
+  }, [isFocused])
+
+  if (
+    !point ||
+    typeof point.lat !== 'number' ||
+    Number.isNaN(point.lat) ||
+    typeof point.lng !== 'number' ||
+    Number.isNaN(point.lng)
+  ) {
+    return null
+  }
+
+  const categories = Array.isArray(point.categories) ? point.categories.filter(Boolean) : []
+  const markerId = getPointIdentifier(point)
+
+  return (
+    <Marker
+      ref={markerRef}
+      position={[point.lat, point.lng]}
+      icon={icon}
+      eventHandlers={{
+        click: () => {
+          if (
+            typeof point.lat === 'number' &&
+            typeof point.lng === 'number' &&
+            onFocusEstablishment
+          ) {
+            onFocusEstablishment({
+              ...point,
+              id: markerId ?? point.id,
+              lat: point.lat,
+              lng: point.lng,
+            })
+            return
+          }
+          if (onClearFocus) onClearFocus()
+        },
+      }}
+    >
+      <Popup>
+        <div style={{ fontSize: '0.9rem', lineHeight: 1.3 }}>
+          <strong>{point.name}</strong>
+          <br />
+          <br />
+          📍 {point.address}
+          <br />
+          🗺️ <b>Lat:</b> {point.lat.toFixed(5)} | <b>Lng:</b> {point.lng.toFixed(5)}
+          <br />
+          <div style={{ marginTop: '6px', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+            <span
+              style={{
+                display: 'inline-block',
+                padding: '2px 6px',
+                background: normalizeSource(point.source) === 'achahada' ? '#27AA85' : '#732f4f',
+                color: 'white',
+                borderRadius: '4px',
+                fontSize: '0.75rem',
+                fontWeight: 'bold',
+              }}
+            >
+              {point.source}
+            </span>
+            {categories.map((category: string) => (
+              <span
+                key={`${point.id ?? point.name}-category-${category}`}
+                style={{
+                  display: 'inline-block',
+                  padding: '2px 6px',
+                  background: '#6b7280',
+                  color: 'white',
+                  borderRadius: '4px',
+                  fontSize: '0.75rem',
+                  fontWeight: 'bold',
+                }}
+              >
+                {category}
+              </span>
+            ))}
+          </div>
+        </div>
+      </Popup>
+    </Marker>
+  )
+}
+
+function MapFocusController({
+  target,
+}: {
+  target?: { lat?: number; lng?: number; timestamp?: number } | null
+}) {
+  const map = useMap()
+  const lat = target?.lat
+  const lng = target?.lng
+  const timestamp = target?.timestamp
+
+  useEffect(() => {
+    if (
+      typeof lat !== 'number' ||
+      Number.isNaN(lat) ||
+      typeof lng !== 'number' ||
+      Number.isNaN(lng)
+    ) {
+      return
+    }
+    const safeMaxZoom = getSafeMaxZoom(map)
+    const currentZoom = map.getZoom()
+    const baseZoom = typeof currentZoom === 'number' && currentZoom > 0 ? currentZoom : 11
+    const desiredZoom = Math.min(safeMaxZoom, Math.max(baseZoom, 16))
+    map.flyTo([lat, lng], desiredZoom, { animate: true })
+  }, [map, lat, lng, timestamp])
+
+  return null
 }

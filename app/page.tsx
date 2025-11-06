@@ -89,6 +89,12 @@ export default function Home() {
   const [visibleEstablishments, setVisibleEstablishments] = useState<Establishment[]>([])
   const [decertifiedEstablishments, setDecertifiedEstablishments] = useState<DecertifiedEstablishment[]>([])
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
+  const [focusedEstablishment, setFocusedEstablishment] = useState<{
+    id?: string
+    lat: number
+    lng: number
+    timestamp: number
+  } | null>(null)
   
   const handleVisibleChange = useCallback((items: any[]) => {
     setVisibleEstablishments(items as Establishment[])
@@ -100,6 +106,31 @@ export default function Home() {
     } else {
       setDecertifiedEstablishments([])
     }
+  }, [])
+
+  const focusOnEstablishment = useCallback((establishment?: Establishment) => {
+    if (!establishment) return
+    const { lat, lng, id, name } = establishment
+    if (
+      typeof lat !== 'number' ||
+      Number.isNaN(lat) ||
+      typeof lng !== 'number' ||
+      Number.isNaN(lng)
+    ) {
+      return
+    }
+
+    const identifier = id ?? `${lat}-${lng}-${name ?? 'establishment'}`
+    setFocusedEstablishment({
+      id: identifier,
+      lat,
+      lng,
+      timestamp: Date.now(),
+    })
+  }, [])
+
+  const clearFocus = useCallback(() => {
+    setFocusedEstablishment(null)
   }, [])
 
   const dateFormatter = useMemo(
@@ -253,6 +284,9 @@ export default function Home() {
               onVisibleCertifiedChange={handleVisibleChange}
               onDecertifiedChange={handleDecertifiedChange}
               categoryFilter={categoryFilter}
+              focusedEstablishment={focusedEstablishment}
+              onClearFocus={clearFocus}
+              onFocusEstablishment={focusOnEstablishment}
             />
           </div>
         </div>
@@ -319,7 +353,16 @@ export default function Home() {
                 return (
                   <div
                     key={establishment?.id ?? `${establishment?.lat}-${establishment?.lng}-${establishment?.name}`}
-                    className="group relative rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/10"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => focusOnEstablishment(establishment)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+                        event.preventDefault()
+                        focusOnEstablishment(establishment)
+                      }
+                    }}
+                    className="group relative rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/10 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
