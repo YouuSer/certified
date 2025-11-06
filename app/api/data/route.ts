@@ -146,37 +146,49 @@ if (duplicates.length > 0) {
 const oldSnapshot = await getDocs(collection(db, 'establishments'))
 const oldData = oldSnapshot.docs.map((d) => d.data())
 
-const added = deduped.filter((n) => !oldData.some((o) => o.id === n.id))
-const removed = oldData.filter((o) => !deduped.some((n) => n.id === o.id))
-const modified = deduped.filter((n) => {
-  const old = oldData.find((o) => o.id === n.id)
-  if (!old) return false
+const oldById = new Map(
+  oldData
+    .filter((entry): entry is { id: string } & Record<string, unknown> => Boolean(entry?.id))
+    .map((entry) => [entry.id, entry]),
+)
+const added: any[] = []
+const removed: any[] = []
+const modified: Array<{
+  id?: string
+  before: any
+  after: any
+  changes: Array<{ field: string; before: unknown; after: unknown }>
+}> = []
+const seenIds = new Set<string>()
 
-  const oldNormalized = normalizeEstablishmentShape(old)
-  const newNormalized = normalizeEstablishmentShape(n)
+for (const entry of deduped) {
+  const entryId = entry?.id
+  if (entryId) {
+    seenIds.add(entryId)
+  }
 
-  const coordChanged =
-    Math.abs((oldNormalized.lat ?? 0) - (newNormalized.lat ?? 0)) > 0.0001 ||
-    Math.abs((oldNormalized.lng ?? 0) - (newNormalized.lng ?? 0)) > 0.0001
+  const previous = entryId ? oldById.get(entryId) : undefined
+  if (!previous) {
+    added.push(cloneEstablishment(entry))
+    continue
+  }
 
-  const categoriesChanged = !areStringArraysEqual(
-    toStringArray(oldNormalized.categories),
-    toStringArray(newNormalized.categories),
-  )
+  const changes = collectModificationChanges(previous, entry)
+  if (changes.length > 0) {
+    modified.push({
+      id: entryId,
+      before: cloneEstablishment(previous),
+      after: cloneEstablishment(entry),
+      changes,
+    })
+  }
+}
 
-  const filtersChanged = !areNumberArraysEqual(
-    toNumberArray(oldNormalized.filter),
-    toNumberArray(newNormalized.filter),
-  )
-
-  return (
-    oldNormalized.name !== newNormalized.name ||
-    oldNormalized.address !== newNormalized.address ||
-    coordChanged ||
-    categoriesChanged ||
-    filtersChanged
-  )
-})
+for (const previous of oldData) {
+  const previousId = previous?.id
+  if (!previousId || seenIds.has(previousId)) continue
+  removed.push(cloneEstablishment(previous))
+}
 
 console.log(`🆕 ${added.length} ajout(s), ❌ ${removed.length} suppression(s), ✏️ ${modified.length} modification(s).`)
 
@@ -488,6 +500,70 @@ function mergeEstablishment(existing: any, incoming: any) {
 
 function cloneEstablishment(est: any) {
   return est ? JSON.parse(JSON.stringify(est)) : est
+}
+
+function collectModificationChanges(previous: any, next: any) {
+  const oldNormalized = normalizeEstablishmentShape(previous)
+  const newNormalized = normalizeEstablishmentShape(next)
+
+  const sanitizeChangeValue = (value: unknown) => {
+    if (Array.isArray(value)) {
+      return value.map((item) => (item === undefined ? null : item))
+    }
+    return value === undefined ? null : value
+  }
+
+  const pushChange = (
+    changes: Array<{ field: string; before: unknown; after: unknown }>,
+    field: string,
+    before: unknown,
+    after: unknown,
+  ) => {
+    changes.push({
+      field,
+      before: sanitizeChangeValue(before),
+      after: sanitizeChangeValue(after),
+    })
+  }
+
+  const changes: Array<{ field: string; before: unknown; after: unknown }> = []
+
+  if (oldNormalized.name !== newNormalized.name) {
+    pushChange(changes, 'name', oldNormalized.name, newNormalized.name)
+  }
+  if (oldNormalized.address !== newNormalized.address) {
+    pushChange(changes, 'address', oldNormalized.address, newNormalized.address)
+  }
+  if (oldNormalized.city !== newNormalized.city) {
+    pushChange(changes, 'city', oldNormalized.city, newNormalized.city)
+  }
+  if (oldNormalized.source !== newNormalized.source) {
+    pushChange(changes, 'source', oldNormalized.source, newNormalized.source)
+  }
+  if (!areNumbersClose(oldNormalized.lat, newNormalized.lat)) {
+    pushChange(changes, 'lat', oldNormalized.lat, newNormalized.lat)
+  }
+  if (!areNumbersClose(oldNormalized.lng, newNormalized.lng)) {
+    pushChange(changes, 'lng', oldNormalized.lng, newNormalized.lng)
+  }
+  if (!areStringArraysEqual(oldNormalized.categories ?? [], newNormalized.categories ?? [])) {
+    pushChange(
+      changes,
+      'categories',
+      Array.isArray(oldNormalized.categories) ? [...oldNormalized.categories] : [],
+      Array.isArray(newNormalized.categories) ? [...newNormalized.categories] : [],
+    )
+  }
+  if (!areNumberArraysEqual(oldNormalized.filter ?? [], newNormalized.filter ?? [])) {
+    pushChange(
+      changes,
+      'filter',
+      Array.isArray(oldNormalized.filter) ? [...oldNormalized.filter] : [],
+      Array.isArray(newNormalized.filter) ? [...newNormalized.filter] : [],
+    )
+  }
+
+  return changes
 }
 
 function areStringArraysEqual(a: string[], b: string[]): boolean {
