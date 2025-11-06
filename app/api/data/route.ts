@@ -235,6 +235,93 @@ return deduped
 }
 
 // === HELPERS ===
+const HTML_ENTITY_PATTERN = /&(#(?:x[0-9a-fA-F]+|\d+)|[a-zA-Z][\w-]*);/g
+const HTML_ENTITY_MAP: Record<string, string> = {
+  amp: '&',
+  apos: "'",
+  quot: '"',
+  lt: '<',
+  gt: '>',
+  nbsp: ' ',
+  rsquo: "'",
+  lsquo: "'",
+  ldquo: '"',
+  rdquo: '"',
+  hellip: '...',
+  ndash: '-',
+  mdash: '—',
+  deg: '°',
+  euro: '€',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  laquo: '«',
+  raquo: '»',
+  agrave: 'à',
+  aacute: 'á',
+  acirc: 'â',
+  auml: 'ä',
+  aring: 'å',
+  aelig: 'æ',
+  ccedil: 'ç',
+  egrave: 'è',
+  eacute: 'é',
+  ecirc: 'ê',
+  euml: 'ë',
+  igrave: 'ì',
+  iacute: 'í',
+  icirc: 'î',
+  iuml: 'ï',
+  ograve: 'ò',
+  oacute: 'ó',
+  ocirc: 'ô',
+  otilde: 'õ',
+  ouml: 'ö',
+  oslash: 'ø',
+  ugrave: 'ù',
+  uacute: 'ú',
+  ucirc: 'û',
+  uuml: 'ü',
+  yacute: 'ý',
+  yuml: 'ÿ',
+  oelig: 'œ',
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value.replace(HTML_ENTITY_PATTERN, (match, entity: string) => {
+    if (!entity) return match
+    if (entity[0] === '#') {
+      const isHex = entity[1]?.toLowerCase() === 'x'
+      const codePoint = Number.parseInt(
+        entity.slice(isHex ? 2 : 1),
+        isHex ? 16 : 10,
+      )
+      if (Number.isFinite(codePoint) && codePoint >= 0) {
+        try {
+          return String.fromCodePoint(codePoint)
+        } catch {
+          return match
+        }
+      }
+      return match
+    }
+    const replacement = HTML_ENTITY_MAP[entity.toLowerCase()]
+    return replacement ?? match
+  })
+}
+
+function sanitizeText(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const decoded = decodeHtmlEntities(value)
+    const trimmed = decoded.trim()
+    return trimmed.length > 0 ? trimmed : undefined
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value.toString() : undefined
+  }
+  return undefined
+}
+
 function toNumberArray(value: unknown): number[] {
   if (Array.isArray(value)) {
     return Array.from(
@@ -281,11 +368,9 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 function normalizeComparableString(value: unknown): string {
-  if (typeof value === 'string') {
-    return value.trim().toLowerCase()
-  }
-  if (typeof value === 'number') {
-    return value.toString()
+  const sanitized = sanitizeText(value)
+  if (sanitized) {
+    return sanitized.toLowerCase()
   }
   return ''
 }
@@ -316,18 +401,17 @@ function normalizeEstablishmentShape(est: any) {
     typeof est?.lng === 'number' ? est.lng : Number.parseFloat(`${est?.lng ?? ''}`)
   const lat = Number.isFinite(latCandidate) ? latCandidate : undefined
   const lng = Number.isFinite(lngCandidate) ? lngCandidate : undefined
-  const name =
-    typeof est?.name === 'string' ? est.name.trim() : typeof est?.name === 'number' ? String(est.name) : est?.name
-  const address = typeof est?.address === 'string' ? est.address.trim() : est?.address
-  const city = typeof est?.city === 'string' ? est.city.trim() : est?.city
-  const source = typeof est?.source === 'string' ? est.source.trim() : est?.source
+  const sanitizedName = sanitizeText(est?.name)
+  const sanitizedAddress = sanitizeText(est?.address)
+  const sanitizedCity = sanitizeText(est?.city)
+  const sanitizedSource = sanitizeText(est?.source)
 
   return {
     ...est,
-    name,
-    address,
-    city,
-    source,
+    name: sanitizedName ?? (typeof est?.name === 'number' ? String(est.name) : est?.name),
+    address: sanitizedAddress ?? est?.address,
+    city: sanitizedCity ?? est?.city,
+    source: sanitizedSource ?? est?.source,
     lat,
     lng,
     filter: filters,

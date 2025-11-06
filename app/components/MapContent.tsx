@@ -1,8 +1,12 @@
+// MapContent.tsx
 'use client'
+import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useEffect, useMemo, useState } from 'react'
 import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
+
+import { db } from '@/lib/firebase'
 
 const achahadaIcon = new L.DivIcon({
   html: `
@@ -261,59 +265,17 @@ const normalizeSource = (source?: string) => {
   return lower
 }
 
-export default function MapContent() {
+export type MapContentProps = {
+  onVisibleCertifiedChange?: (value: any[]) => void
+  onDecertifiedChange?: (value: any[]) => void
+}
+
+export default function MapContent({
+  onVisibleCertifiedChange,
+  onDecertifiedChange,
+}: MapContentProps) {
   const [points, setPoints] = useState<any[]>([])
   const [darkMode, setDarkMode] = useState(false)
-  const [visibleCertified, setVisibleCertified] = useState<any[]>([])
-  const dateFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat('fr-FR', {
-        dateStyle: 'medium',
-      }),
-    [],
-  )
-
-  const getEntryDateValue = (establishment: any) =>
-    establishment?.entryDate ??
-    establishment?.certifiedAt ??
-    establishment?.startDate ??
-    establishment?.createdAt ??
-    establishment?.updatedAt ??
-    null
-
-  const formatEntryDate = (value: unknown) => {
-    if (!value) return 'Date inconnue'
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? 'Date inconnue' : dateFormatter.format(value)
-    }
-    if (typeof value === 'number') {
-      const date = new Date(value)
-      return Number.isNaN(date.getTime()) ? 'Date inconnue' : dateFormatter.format(date)
-    }
-    if (typeof value === 'string') {
-      const date = new Date(value)
-      return Number.isNaN(date.getTime()) ? value : dateFormatter.format(date)
-    }
-    return 'Date inconnue'
-  }
-
-  const visibleCertifiedSorted = useMemo(() => {
-    const entries = visibleCertified.map((establishment) => ({
-      establishment,
-      rawDate: getEntryDateValue(establishment),
-    }))
-
-    entries.sort((a, b) => {
-      const timeA = Date.parse(`${a.rawDate ?? ''}`)
-      const timeB = Date.parse(`${b.rawDate ?? ''}`)
-      if (Number.isNaN(timeA) && Number.isNaN(timeB)) return 0
-      if (Number.isNaN(timeA)) return 1
-      if (Number.isNaN(timeB)) return -1
-      return timeB - timeA
-    })
-
-    return entries
-  }, [visibleCertified])
 
   // --- Détecter le thème système ---
   useEffect(() => {
@@ -338,145 +300,69 @@ export default function MapContent() {
     fetchData()
   }, [])
 
+  useEffect(() => {
+    if (!onDecertifiedChange) return
+
+    let isCancelled = false
+
+    const loadDecertified = async () => {
+      try {
+        const changelogSnapshot = await getDocs(
+          query(collection(db, 'changelog'), orderBy('date', 'desc'), limit(1)),
+        )
+        const latest = changelogSnapshot.docs[0]?.data() as
+          | {
+              removed?: any[]
+              date?: string
+            }
+          | undefined
+
+        const exitDate = latest?.date ?? null
+        const removed = latest && Array.isArray(latest.removed) ? latest.removed : []
+        const normalized = removed.map((entry) => ({
+          ...entry,
+          exitDate,
+        }))
+
+        if (!isCancelled) {
+          onDecertifiedChange(normalized)
+        }
+      } catch (error) {
+        console.error('Erreur lors du chargement des établissements non certifiés:', error)
+        if (!isCancelled) {
+          onDecertifiedChange([])
+        }
+      }
+    }
+
+    void loadDecertified()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [onDecertifiedChange])
+
   // --- Choisir la tuile selon le mode ---
   const tileUrl = darkMode
     ? 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'
     : 'https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png'
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        gap: '24px',
-        alignItems: 'flex-start',
-        width: '100%',
-        maxWidth: '960px',
-        margin: '0 auto',
-      }}
-    >
+    <div style={{ width: '100%' }}>
       <MapContainer
         center={[48.8566, 2.3522]}
         zoom={11}
         style={{
           height: '600px',
           width: '100%',
-          flex: '2 1 0%',
           borderRadius: '16px',
           overflow: 'hidden',
           boxShadow: '0 8px 20px rgba(15, 23, 42, 0.12)',
         }}
       >
         <TileLayer url={tileUrl} />
-        <ClusteredMarkers points={points} onVisibleCertifiedChange={setVisibleCertified} />
+        <ClusteredMarkers points={points} onVisibleCertifiedChange={onVisibleCertifiedChange} />
       </MapContainer>
-      <aside
-        style={{
-          flex: '1 1 0%',
-          maxHeight: '600px',
-          overflowY: 'auto',
-          padding: '16px',
-          borderRadius: '16px',
-          background: darkMode ? '#18181b' : '#f8fafc',
-          color: darkMode ? '#f4f4f5' : '#111827',
-          boxShadow: darkMode
-            ? '0 0 0 1px rgba(255,255,255,0.08) inset'
-            : '0 0 0 1px rgba(15,23,42,0.06) inset',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '16px',
-        }}
-      >
-        <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-          <h3 style={{ fontSize: '1.125rem', fontWeight: 600, margin: 0 }}>Établissements visibles</h3>
-          <span style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-            {visibleCertifiedSorted.length}{' '}
-            {visibleCertifiedSorted.length > 1 ? 'résultats' : 'résultat'}
-          </span>
-        </header>
-        {visibleCertifiedSorted.length === 0 ? (
-          <p style={{ margin: 0, fontSize: '0.9rem', opacity: 0.7 }}>
-            Déplacez la carte pour découvrir des établissements certifiés.
-          </p>
-        ) : (
-          visibleCertifiedSorted.map(({ establishment, rawDate }) => {
-            const categories = Array.isArray(establishment?.categories)
-              ? establishment.categories.filter(Boolean)
-              : []
-            return (
-              <div
-                key={establishment?.id ?? `${establishment?.lat}-${establishment?.lng}-${establishment?.name}`}
-                style={{
-                  borderRadius: '12px',
-                  padding: '12px',
-                  background: darkMode ? 'rgba(39,39,42,0.65)' : '#ffffff',
-                  boxShadow: darkMode
-                    ? '0 0 0 1px rgba(82,82,91,0.5)'
-                    : '0 10px 24px rgba(15, 23, 42, 0.08)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '6px',
-                }}
-              >
-                <div style={{ fontWeight: 600, fontSize: '1rem' }}>
-                  {establishment?.name ?? 'Nom inconnu'}
-                </div>
-                <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                  {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '0.8rem',
-                      padding: '4px 8px',
-                      borderRadius: '9999px',
-                      background: darkMode ? 'rgba(250,250,250,0.1)' : '#e0f2f1',
-                      color: darkMode ? '#cbd5f5' : '#0f766e',
-                      fontWeight: 500,
-                    }}
-                  >
-                    Entrée&nbsp;: {formatEntryDate(rawDate)}
-                  </span>
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      fontSize: '0.8rem',
-                      padding: '4px 8px',
-                      borderRadius: '9999px',
-                      background: darkMode ? 'rgba(39,39,42,0.65)' : '#eef2ff',
-                      color: darkMode ? '#c7d2fe' : '#3730a3',
-                      fontWeight: 500,
-                    }}
-                  >
-                    {establishment?.source ?? 'Source inconnue'}
-                  </span>
-                  {categories.map((category: string) => (
-                    <span
-                      key={`${establishment?.id ?? establishment?.name}-category-${category}`}
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        fontSize: '0.8rem',
-                        padding: '4px 8px',
-                        borderRadius: '9999px',
-                        background: darkMode ? 'rgba(55, 65, 81, 0.75)' : '#f1f5f9',
-                        color: darkMode ? '#e2e8f0' : '#1f2937',
-                        fontWeight: 500,
-                      }}
-                    >
-                      {category}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )
-          })
-        )}
-      </aside>
     </div>
   )
 }
@@ -685,13 +571,3 @@ function ClusteredMarkers({
     </>
   )
 }
-
-// TODO maj quotidienne des données (via un cron une fois deployé)
-// TODO afficher la liste des établissements qui ne sont plus certifiés avec la date de sortie
-// TODO filtre par catégorie
-// TODO clustering des points pour les zones denses
-// TODO custom icons par catégorie
-// TODO infowindow custom avec plus d'infos
-// TODO loader pendant le fetch
-// TODO gestion des erreurs de fetch
-// TODO contrôle du zoom et de la position initiale
