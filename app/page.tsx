@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './components/MapView'
@@ -346,6 +347,27 @@ export default function Home() {
         <div className="absolute inset-0 bg-gradient-to-b from-blue-50/50 via-transparent to-transparent dark:from-blue-950/20" />
         
         <div className="relative max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 pt-20 pb-16 sm:pt-32 sm:pb-24">
+          <div className="absolute right-6 top-6 sm:right-10 sm:top-10">
+            <Link
+              href="/admin/monitoring"
+              aria-label="Accéder à la page de monitoring"
+              title="Monitoring"
+              className="group inline-flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/80 text-zinc-900 shadow-[0_10px_25px_rgba(15,23,42,0.15)] transition hover:-translate-y-0.5 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-white/15 dark:bg-zinc-900/70 dark:text-white dark:hover:text-blue-300"
+            >
+              <span className="sr-only">Accéder à la page de monitoring</span>
+              <svg
+                viewBox="0 0 24 24"
+                role="img"
+                aria-hidden="true"
+                className="size-6 stroke-current text-zinc-700 transition group-hover:text-blue-600 dark:text-zinc-200 dark:group-hover:text-blue-300"
+                fill="none"
+                strokeWidth={1.8}
+              >
+                <path d="M4 17.5 8.5 12l4 4 4-8 3.5 6.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M4 19h16" strokeLinecap="round" />
+              </svg>
+            </Link>
+          </div>
           <div className="text-center max-w-4xl mx-auto mb-16">
             <h1 className="text-6xl sm:text-7xl lg:text-8xl font-bold tracking-tight mb-6 bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-600 dark:from-white dark:via-zinc-100 dark:to-zinc-400 bg-clip-text text-transparent">
               Certified.

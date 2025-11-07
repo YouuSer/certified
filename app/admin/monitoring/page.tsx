@@ -1,6 +1,7 @@
 'use client'
 
 import { collection, doc, getDoc, getDocs, orderBy, query } from 'firebase/firestore'
+import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 
 import { db } from '@/lib/firebase'
@@ -574,11 +575,32 @@ export default function FirebaseDiagnosticsPage() {
   return (
     <div className="min-h-screen bg-zinc-100 p-8 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-50">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-10">
-        <header className="space-y-2">
-          <h1 className="text-3xl font-semibold">Diagnostics Firestore</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Suivi des synchronisations Achahada / AVS sauvegardées dans Firestore.
-          </p>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-semibold">Diagnostics Firestore</h1>
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              Suivi des synchronisations Achahada / AVS sauvegardées dans Firestore.
+            </p>
+          </div>
+          <Link
+            href="/"
+            aria-label="Revenir à la page principale"
+            title="Accueil"
+            className="group inline-flex size-12 items-center justify-center rounded-full border border-zinc-300 bg-white/90 text-zinc-800 shadow-lg transition hover:-translate-y-0.5 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-white dark:hover:text-blue-300"
+          >
+            <span className="sr-only">Revenir à la page principale</span>
+            <svg
+              viewBox="0 0 24 24"
+              role="img"
+              aria-hidden="true"
+              className="size-6 stroke-current text-zinc-600 transition group-hover:text-blue-600 dark:text-zinc-200 dark:group-hover:text-blue-300"
+              fill="none"
+              strokeWidth={1.8}
+            >
+              <path d="m15 6-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M19 12H9" strokeLinecap="round" />
+            </svg>
+          </Link>
         </header>
 
         {loading && <p className="text-sm text-zinc-500">Chargement des statistiques...</p>}
