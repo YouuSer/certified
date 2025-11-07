@@ -1,8 +1,17 @@
+@config "../tailwind.config.ts";
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background-light: #ffffff;
+  --foreground-light: #171717;
+  --background-dark: #171717;
+  --foreground-dark: #f5f5f5;
+  --dark-surface: #1f1f1f;
+  --dark-card: #242424;
+  --dark-border: rgba(255, 255, 255, 0.08);
+  --dark-muted: #b3b3b3;
+  --background: var(--background-light);
+  --foreground: var(--foreground-light);
 }
 
 @theme inline {
@@ -12,10 +21,20 @@
   --font-mono: var(--font-geist-mono);
 }
 
+:root.dark {
+  --background: var(--background-dark);
+  --foreground: var(--foreground-dark);
+}
+
+:root.light {
+  --background: var(--background-light);
+  --foreground: var(--foreground-light);
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  :root:not(.light):not(.dark) {
+    --background: var(--background-dark);
+    --foreground: var(--foreground-dark);
   }
 }
 

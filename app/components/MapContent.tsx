@@ -387,6 +387,7 @@ export type MapContentProps = {
   onFocusEstablishment?: (value: { id?: string; name?: string; lat: number; lng: number }) => void
   userLocation?: { lat?: number; lng?: number } | null
   onRequestUserLocation?: () => void
+  isDarkMode?: boolean
 }
 
 export default function MapContent({
@@ -398,19 +399,10 @@ export default function MapContent({
   onFocusEstablishment,
   userLocation,
   onRequestUserLocation,
+  isDarkMode = false,
 }: MapContentProps) {
   const [points, setPoints] = useState<any[]>([])
-  const [darkMode, setDarkMode] = useState(false)
   const mapRef = useRef<L.Map | null>(null)
-  
-  // --- Détecter le thème système ---
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)')
-    setDarkMode(mq.matches)
-    const listener = (e: MediaQueryListEvent) => setDarkMode(e.matches)
-    mq.addEventListener('change', listener)
-    return () => mq.removeEventListener('change', listener)
-  }, [])
   
   useEffect(() => {
     return () => {
@@ -480,9 +472,10 @@ export default function MapContent({
   }, [onDecertifiedChange])
   
   // --- Choisir la tuile selon le mode ---
-  const tileUrl = darkMode
-  ? 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'
-  : 'https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png'
+  const tileUrl = isDarkMode
+    ? 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png'
+    : 'https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}{r}.png'
+  const tileLayerKey = isDarkMode ? 'dark' : 'light'
   
   return (
     <div style={{ width: '100%', position: 'relative' }}>
@@ -498,7 +491,7 @@ export default function MapContent({
     }}
     >
     <MapRefSetter mapRef={mapRef} />
-    <TileLayer url={tileUrl} />
+    <TileLayer key={tileLayerKey} url={tileUrl} />
     <MapFocusController target={focusedEstablishment} />
     <UserLocationFocusController location={userLocation} />
     <ClusteredMarkers

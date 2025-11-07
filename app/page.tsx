@@ -1,7 +1,7 @@
 'use client'
 
-import Link from 'next/link'
 import { matchesCategoryFilter, type CategoryFilter } from '@/lib/categoryFilter'
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapView from './components/MapView'
 
@@ -43,6 +43,10 @@ const CATEGORY_FILTER_OPTIONS: Array<{ value: CategoryFilter; label: string }> =
   { value: 'boucheries', label: 'Boucheries' },
   { value: 'others', label: 'Autres' },
 ]
+
+type ThemeMode = 'light' | 'dark'
+
+const THEME_STORAGE_KEY = 'certified:theme'
 
 const getCertificationIcon = (source?: string) => {
   if (!source) return null
@@ -158,6 +162,9 @@ export default function Home() {
     timestamp: number
   } | null>(null)
   const [userPosition, setUserPosition] = useState<Coordinates | null>(null)
+  const [theme, setTheme] = useState<ThemeMode>('light')
+  const [isThemeReady, setIsThemeReady] = useState(false)
+  const userPreferredThemeRef = useRef(false)
   const isUnmountedRef = useRef(false)
 
   const requestUserLocation = useCallback(() => {
@@ -191,6 +198,70 @@ export default function Home() {
       isUnmountedRef.current = true
     }
   }, [requestUserLocation])
+  
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    let storedTheme: ThemeMode | null = null
+    try {
+      const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY)
+      if (savedTheme === 'dark' || savedTheme === 'light') {
+        storedTheme = savedTheme
+      }
+    } catch {
+      storedTheme = null
+    }
+    
+    if (storedTheme) {
+      userPreferredThemeRef.current = true
+      setTheme(storedTheme)
+      setIsThemeReady(true)
+      return
+    }
+    
+    if (typeof window.matchMedia !== 'function') {
+      setTheme('light')
+      setIsThemeReady(true)
+      return
+    }
+    
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    setTheme(mq.matches ? 'dark' : 'light')
+    setIsThemeReady(true)
+    
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (userPreferredThemeRef.current) return
+      setTheme(event.matches ? 'dark' : 'light')
+    }
+    
+    mq.addEventListener('change', handleChange)
+    return () => {
+      mq.removeEventListener('change', handleChange)
+    }
+  }, [])
+  
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    const root = document.documentElement
+    root.classList.toggle('dark', theme === 'dark')
+    root.classList.toggle('light', theme === 'light')
+    root.style.colorScheme = theme
+  }, [theme])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((previous) => {
+      const nextTheme: ThemeMode = previous === 'dark' ? 'light' : 'dark'
+      if (typeof window !== 'undefined') {
+        try {
+          window.localStorage.setItem(THEME_STORAGE_KEY, nextTheme)
+        } catch {
+          // Storage might be unavailable (e.g., private browsing)
+        }
+      }
+      userPreferredThemeRef.current = true
+      return nextTheme
+    })
+    setIsThemeReady(true)
+  }, [])
   
   const handleVisibleChange = useCallback((items: any[]) => {
     setVisibleEstablishments(items as Establishment[])
@@ -339,20 +410,69 @@ export default function Home() {
       })
       .sort((a, b) => b.sortValue - a.sortValue)
   }, [dateFormatter, filteredDecertifiedEstablishments])
+  
+  const isDarkMode = theme === 'dark'
+  const themeToggleLabel = isDarkMode ? 'Activer le mode clair' : 'Activer le mode sombre'
 
   return (
-    <div className="min-h-screen bg-white dark:bg-black">
+    <div className="min-h-screen bg-white dark:bg-[#171717]">
       {/* Hero Section */}
       <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-blue-50/50 via-transparent to-transparent dark:from-blue-950/20" />
+        <div className="absolute inset-0 bg-gradient-to-b from-blue-50/50 via-transparent to-transparent dark:from-[#1c1c1c] dark:via-transparent dark:to-transparent" />
         
         <div className="relative max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 pt-20 pb-16 sm:pt-32 sm:pb-24">
-          <div className="absolute right-6 top-6 sm:right-10 sm:top-10">
+          <div className="absolute right-6 top-6 flex gap-3 sm:right-10 sm:top-10">
+            <button
+              type="button"
+              onClick={toggleTheme}
+              aria-pressed={isDarkMode}
+              aria-label={themeToggleLabel}
+              title={themeToggleLabel}
+              disabled={!isThemeReady}
+              className="group inline-flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/80 text-zinc-900 shadow-[0_10px_25px_rgba(15,23,42,0.15)] transition hover:-translate-y-0.5 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:cursor-not-allowed disabled:opacity-60 dark:border-[var(--dark-border)] dark:bg-[rgba(255,255,255,0.08)] dark:text-white dark:hover:text-zinc-100"
+            >
+              <span className="sr-only">{themeToggleLabel}</span>
+              {isDarkMode ? (
+                <svg
+                  viewBox="0 0 24 24"
+                  role="img"
+                  aria-hidden="true"
+                  className="size-6 stroke-current text-zinc-200 transition group-hover:text-blue-300"
+                  fill="none"
+                  strokeWidth={1.8}
+                >
+                  <path
+                    d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  role="img"
+                  aria-hidden="true"
+                  className="size-6 stroke-current text-zinc-700 transition group-hover:text-blue-600"
+                  fill="none"
+                  strokeWidth={1.8}
+                >
+                  <path d="M12 4.5V3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12 21v-1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M4.5 12H3" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M21 12h-1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="m5.64 5.64-1.06-1.06" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="m19.42 19.42-1.06-1.06" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="m5.64 18.36-1.06 1.06" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="m19.42 4.58-1.06 1.06" strokeLinecap="round" strokeLinejoin="round" />
+                  <circle cx="12" cy="12" r="4" />
+                </svg>
+              )}
+            </button>
             <Link
               href="/admin/monitoring"
               aria-label="Accéder à la page de monitoring"
               title="Monitoring"
-              className="group inline-flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/80 text-zinc-900 shadow-[0_10px_25px_rgba(15,23,42,0.15)] transition hover:-translate-y-0.5 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-white/15 dark:bg-zinc-900/70 dark:text-white dark:hover:text-blue-300"
+              className="group inline-flex size-12 items-center justify-center rounded-full border border-white/60 bg-white/80 text-zinc-900 shadow-[0_10px_25px_rgba(15,23,42,0.15)] transition hover:-translate-y-0.5 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:border-[var(--dark-border)] dark:bg-[rgba(255,255,255,0.08)] dark:text-white dark:hover:text-zinc-100"
             >
               <span className="sr-only">Accéder à la page de monitoring</span>
               <svg
@@ -375,7 +495,7 @@ export default function Home() {
             <p className="text-xl sm:text-2xl font-medium text-zinc-900 dark:text-white mb-4">
               Boucheries, Restaurants, Fournisseurs...
             </p>
-            <p className="text-lg sm:text-xl text-zinc-600 dark:text-zinc-400 max-w-2xl mx-auto leading-relaxed">
+            <p className="text-lg sm:text-xl text-zinc-600 dark:text-[var(--dark-muted)] max-w-2xl mx-auto leading-relaxed">
               Découvrez des établissements et fournisseurs de confiance, rigoureusement vérifiés pour garantir la qualité et la sécurité de vos achats.
             </p>
           </div>
@@ -389,10 +509,10 @@ export default function Home() {
                   type="button"
                   onClick={() => setCategoryFilter(value)}
                   aria-pressed={isActive}
-                  className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
-                    isActive
-                      ? 'border-blue-500/80 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-[0_8px_16px_rgba(37,99,235,0.25)] dark:border-blue-400/70'
-                      : 'border-white/50 bg-white/70 text-zinc-700 shadow-[0_4px_12px_rgba(15,23,42,0.08)] hover:bg-white/90 dark:border-white/10 dark:bg-zinc-900/60 dark:text-zinc-200 dark:hover:bg-zinc-900/80 dark:shadow-[0_4px_12px_rgba(15,23,42,0.45)]'
+                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium backdrop-blur transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                      isActive
+                        ? 'border-blue-500/80 bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-[0_8px_16px_rgba(37,99,235,0.25)] dark:border-blue-400/70'
+                        : 'border-white/50 bg-white/70 text-zinc-700 shadow-[0_4px_12px_rgba(15,23,42,0.08)] hover:bg-white/90 dark:border-[var(--dark-border)] dark:bg-[rgba(255,255,255,0.06)] dark:text-zinc-100 dark:hover:bg-[rgba(255,255,255,0.12)] dark:shadow-[0_16px_35px_rgba(0,0,0,0.55)]'
                   }`}
                 >
                   <span className="font-semibold">{label}</span>
@@ -400,7 +520,7 @@ export default function Home() {
                     className={`inline-flex h-6 min-w-[1.75rem] items-center justify-center rounded-full border px-2 text-xs font-semibold ${
                       isActive
                         ? 'border-white/50 bg-white/20 text-white'
-                        : 'border-white/60 bg-white text-zinc-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
+                        : 'border-white/60 bg-white text-zinc-700 dark:border-[var(--dark-border)] dark:bg-[rgba(255,255,255,0.08)] dark:text-white'
                     }`}
                   >
                     {categoryCounts[value]}
@@ -410,7 +530,7 @@ export default function Home() {
             })}
           </div>
 
-          <div className="rounded-3xl overflow-hidden shadow-2xl border border-black/5 dark:border-white/10">
+          <div className="rounded-3xl overflow-hidden shadow-2xl border border-black/5 dark:border-[var(--dark-border)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.6)]">
             <MapView
               onVisibleCertifiedChange={handleVisibleChange}
               onDecertifiedChange={handleDecertifiedChange}
@@ -420,6 +540,7 @@ export default function Home() {
               onFocusEstablishment={focusOnEstablishment}
               userLocation={userPosition}
               onRequestUserLocation={requestUserLocation}
+              isDarkMode={isDarkMode}
             />
           </div>
         </div>
@@ -434,7 +555,7 @@ export default function Home() {
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white">
                 Établissements certifiés
               </h2>
-              <p className="text-base text-zinc-600 dark:text-zinc-400 mt-2">
+              <p className="text-base text-zinc-600 dark:text-[var(--dark-muted)] mt-2">
                 {visibleWithMeta.length} {visibleWithMeta.length > 1 ? 'établissements trouvés' : 'établissement trouvé'}
               </p>
             </div>
@@ -443,14 +564,14 @@ export default function Home() {
                 {certificationSummaries.map(({ key, count, icon }) => (
                   <div
                     key={key}
-                    className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
+                    className="flex items-center gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-1 hover:shadow-lg dark:border-[var(--dark-border)] dark:bg-[var(--dark-card)]"
                   >
-                    <span className="flex size-11 items-center justify-center rounded-xl border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-950">
+                    <span className="flex size-11 items-center justify-center rounded-xl border border-zinc-200 bg-white dark:border-[var(--dark-border)] dark:bg-[#1e1e1e]">
                       <img src={icon.src} alt={icon.alt} className="h-7 w-7 rounded-full object-contain" />
                     </span>
                     <div className="leading-tight">
                       <p className="text-sm font-semibold text-zinc-900 dark:text-white">{icon.alt}</p>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                      <p className="text-xs text-zinc-500 dark:text-[var(--dark-muted)]">
                         {count} {count > 1 ? 'établissements visibles' : 'établissement visible'}
                       </p>
                     </div>
@@ -461,13 +582,13 @@ export default function Home() {
           </div>
 
           {visibleWithMeta.length === 0 ? (
-            <div className="text-center py-20 px-6 rounded-3xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-                <svg className="w-8 h-8 text-zinc-400 dark:text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-20 px-6 rounded-3xl bg-zinc-50 dark:bg-[rgba(255,255,255,0.03)] border border-zinc-200 dark:border-[var(--dark-border)]">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-200 dark:bg-[#1f1f1f] flex items-center justify-center">
+                <svg className="w-8 h-8 text-zinc-400 dark:text-[var(--dark-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
               </div>
-              <p className="text-zinc-600 dark:text-zinc-400">
+              <p className="text-zinc-600 dark:text-[var(--dark-muted)]">
                 Déplacez la carte pour découvrir des établissements certifiés
               </p>
             </div>
@@ -495,7 +616,7 @@ export default function Home() {
                         focusOnEstablishment(establishment)
                       }
                     }}
-                    className="group relative rounded-3xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/10 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                    className="group relative rounded-3xl bg-white dark:bg-[var(--dark-card)] border border-zinc-200 dark:border-[var(--dark-border)] overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/10 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
@@ -506,7 +627,7 @@ export default function Home() {
                         </h3>
                         <div className="flex-shrink-0">
                           {certificationIcon ? (
-                            <span className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm dark:border-zinc-700 dark:bg-zinc-900">
+                            <span className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm dark:border-[var(--dark-border)] dark:bg-[#1e1e1e]">
                               <img
                                 src={certificationIcon.src}
                                 alt={certificationIcon.alt}
@@ -515,7 +636,7 @@ export default function Home() {
                             </span>
                           ) : (
                             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
-                              <svg className="h-5 w-5 text-green-600 dark:text-green-500" fill="currentColor" viewBox="0 0 20 20">
+                              <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                               </svg>
                             </span>
@@ -523,24 +644,24 @@ export default function Home() {
                         </div>
                       </div>
 
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                        <p className="text-sm text-zinc-600 dark:text-[var(--dark-muted)] leading-relaxed">
                         {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
                       </p>
 
                       <div className="flex flex-wrap items-center gap-2 pt-2">
-                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400">
+                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-[rgba(34,197,94,0.18)] dark:text-green-200">
                           {formattedDate}
                         </span>
                         {categories.map((category: string) => (
                           <span
                             key={`${establishment?.id ?? establishment?.name}-category-${category}`}
-                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 dark:bg-[#1f1f1f] dark:text-[var(--dark-muted)]"
                           >
                             {category}
                           </span>
                         ))}
                         {distanceLabel ? (
-                          <span className="ml-auto inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+                          <span className="ml-auto inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-[rgba(59,130,246,0.18)] dark:text-blue-200">
                             {distanceLabel}
                           </span>
                         ) : null}
@@ -560,20 +681,20 @@ export default function Home() {
               <h2 className="text-3xl sm:text-4xl font-bold tracking-tight text-zinc-900 dark:text-white">
                 Anciens établissements
               </h2>
-              <p className="text-base text-zinc-600 dark:text-zinc-400 mt-2">
+              <p className="text-base text-zinc-600 dark:text-[var(--dark-muted)] mt-2">
                 {decertifiedWithMeta.length} {decertifiedWithMeta.length > 1 ? 'établissements sortis' : 'établissement sorti'}
               </p>
             </div>
           </div>
 
           {decertifiedWithMeta.length === 0 ? (
-            <div className="text-center py-20 px-6 rounded-3xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800">
-              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-200 dark:bg-zinc-800 flex items-center justify-center">
-                <svg className="w-8 h-8 text-zinc-400 dark:text-zinc-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="text-center py-20 px-6 rounded-3xl bg-zinc-50 dark:bg-[rgba(255,255,255,0.03)] border border-zinc-200 dark:border-[var(--dark-border)]">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-zinc-200 dark:bg-[#1f1f1f] flex items-center justify-center">
+                <svg className="w-8 h-8 text-zinc-400 dark:text-[var(--dark-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </div>
-              <p className="text-zinc-600 dark:text-zinc-400">
+              <p className="text-zinc-600 dark:text-[var(--dark-muted)]">
                 Aucun établissement sorti récemment
               </p>
             </div>
@@ -592,7 +713,7 @@ export default function Home() {
                 return (
                   <div
                     key={establishment?.id ?? `${establishment?.lat}-${establishment?.lng}-${establishment?.name}-removed`}
-                    className="group relative rounded-3xl bg-white dark:bg-zinc-900 border border-red-200 dark:border-red-900/50 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-red-500/10"
+                    className="group relative rounded-3xl bg-white dark:bg-[var(--dark-card)] border border-red-200 dark:border-red-500/40 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-red-500/10"
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-orange-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
@@ -603,7 +724,7 @@ export default function Home() {
                         </h3>
                         <div className="flex-shrink-0">
                           {certificationIcon ? (
-                            <span className="flex size-11 items-center justify-center rounded-full border border-red-200 bg-white shadow-sm dark:border-red-900 dark:bg-zinc-900">
+                            <span className="flex size-11 items-center justify-center rounded-full border border-red-200 bg-white shadow-sm dark:border-red-500/50 dark:bg-[#1f1f1f]">
                               <img
                                 src={certificationIcon.src}
                                 alt={certificationIcon.alt}
@@ -612,7 +733,7 @@ export default function Home() {
                             </span>
                           ) : (
                             <span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10">
-                              <svg className="w-5 h-5 text-red-600 dark:text-red-500" fill="currentColor" viewBox="0 0 20 20">
+                              <svg className="w-5 h-5 text-red-600 dark:text-red-300" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
                               </svg>
                             </span>
@@ -620,18 +741,18 @@ export default function Home() {
                         </div>
                       </div>
 
-                      <p className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                        <p className="text-sm text-zinc-600 dark:text-[var(--dark-muted)] leading-relaxed">
                         {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
                       </p>
 
                       <div className="flex flex-wrap gap-2 pt-2">
-                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400">
+                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-[rgba(248,113,113,0.18)] dark:text-red-200">
                           Sorti : {formattedDate}
                         </span>
                         {categories.map((category: string) => (
                           <span
                             key={`${establishment?.id ?? establishment?.name}-removed-category-${category}`}
-                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                            className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-100 text-zinc-700 dark:bg-[#1f1f1f] dark:text-[var(--dark-muted)]"
                           >
                             {category}
                           </span>
@@ -647,9 +768,9 @@ export default function Home() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-zinc-200 dark:border-zinc-800 mt-32">
+      <footer className="border-t border-zinc-200 dark:border-[var(--dark-border)] mt-32">
         <div className="max-w-7xl mx-auto px-6 sm:px-8 lg:px-12 py-12">
-          <p className="text-center text-sm text-zinc-600 dark:text-zinc-400">
+          <p className="text-center text-sm text-zinc-600 dark:text-[var(--dark-muted)]">
             © 2025 Certified. Tous droits réservés.
           </p>
         </div>
