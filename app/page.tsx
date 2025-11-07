@@ -19,6 +19,7 @@ type Establishment = {
   startDate?: unknown
   createdAt?: unknown
   updatedAt?: unknown
+  removedAt?: unknown
 }
 
 type DecertifiedEstablishment = Establishment & {
@@ -63,7 +64,7 @@ const getEntryDateValue = (establishment: Establishment) =>
   null
 
 const getExitDateValue = (establishment: DecertifiedEstablishment) =>
-  establishment?.exitDate ?? establishment?.updatedAt ?? null
+  establishment?.exitDate ?? establishment?.removedAt ?? establishment?.updatedAt ?? null
 
 const DEG_TO_RAD = Math.PI / 180
 const EARTH_RADIUS_KM = 6371

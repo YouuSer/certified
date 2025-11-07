@@ -1,10 +1,21 @@
 import { db } from '@/lib/firebase'
 import {
+  cloneEstablishment,
+  computeChangelogEntries,
+  createDedupKey,
+  mergeEstablishment,
+  normalizeAchahada,
+  normalizeAvs,
+  normalizeEstablishmentShape,
+  shouldMergeEstablishments,
+} from '@/lib/establishments/utils'
+import {
   addDoc,
   collection,
   doc,
   getDoc,
   getDocs,
+  orderBy,
   query,
   setDoc,
   writeBatch,
@@ -14,13 +25,65 @@ import { NextResponse } from 'next/server'
 const CACHE_DURATION = 1000 * 60 * 60 * 24 // 24h
 let lastRefresh = 0
 
-export async function GET() {
+function toArrayLike(value: unknown): any[] {
+  if (Array.isArray(value)) return value
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+  }
+  return []
+}
+
+function extractEntryIds(value: unknown): string[] {
+  return toArrayLike(value)
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const candidate = (entry as { id?: unknown }).id
+      if (typeof candidate !== 'string') return null
+      const trimmed = candidate.trim()
+      return trimmed.length > 0 ? trimmed : null
+    })
+    .filter((id): id is string => Boolean(id))
+}
+
+async function getCurrentlyRemovedIds() {
+  const snapshot = await getDocs(query(collection(db, 'changelog'), orderBy('date', 'asc')))
+  const removedIds = new Set<string>()
+
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data() as Record<string, unknown>
+    const status = typeof data?.status === 'string' ? data.status : 'completed'
+    if (status !== 'completed') continue
+
+    for (const id of extractEntryIds(data?.added)) {
+      removedIds.delete(id)
+    }
+
+    for (const id of extractEntryIds(data?.removed)) {
+      removedIds.add(id)
+    }
+  }
+
+  return removedIds
+}
+
+export async function GET(request: Request) {
   const now = Date.now()
+  const url = new URL(request.url)
+  const forceRefresh = url.searchParams.get('force') === 'true'
   
   try {
     // 🔍 Vérifie la dernière mise à jour Firestore
     const metaSnap = await getDoc(doc(db, 'meta', 'lastRefresh'))
     const metaData = metaSnap.exists() ? metaSnap.data() : null
+
+    if (forceRefresh) {
+      console.log('🔁 Force refresh demandé, bypass du cache 24h.')
+      await refreshCache()
+      const freshSnapshot = await getDocs(collection(db, 'establishments'))
+      const freshData = freshSnapshot.docs.map((d) => d.data())
+      console.log(`✅ Envoi de ${freshData.length} établissements (force refresh)`)
+      return NextResponse.json(freshData)
+    }
     
     if (metaData?.date) {
       const lastUpdate = new Date(metaData.date).getTime()
@@ -68,6 +131,7 @@ export async function GET() {
 
 async function refreshCache() {
   console.log('♻️ Rafraîchissement complet des données...')
+  const syncTimestamp = new Date().toISOString()
   
   // === FILTRES ACHAHADA ===
   const filters: Record<number, string> = {
@@ -101,13 +165,13 @@ const [avsB, avsR, avsF] = await Promise.all([
 
 // === NORMALISATION ===
 const achahadaNormalized = achs.flatMap(({ data, filterId }) =>
-  data.map((e: any) => normalizeAchahada(e, filters[filterId], filterId))
+  data.map((e: any) => normalizeAchahada(e, filters[filterId], filterId, syncTimestamp))
 )
 
 const avsNormalized = [
-  ...avsB.map((e: any) => normalizeAvs(e, 'Boucherie', 1)),
-  ...avsR.map((e: any) => normalizeAvs(e, 'Restaurant', 2)),
-  ...avsF.map((e: any) => normalizeAvs(e, 'Fournisseur', 3)),
+  ...avsB.map((e: any) => normalizeAvs(e, 'Boucherie', 1, syncTimestamp)),
+  ...avsR.map((e: any) => normalizeAvs(e, 'Restaurant', 2, syncTimestamp)),
+  ...avsF.map((e: any) => normalizeAvs(e, 'Fournisseur', 3, syncTimestamp)),
 ]
 
 // === FUSION & DÉDOUBLONNAGE ===
@@ -145,64 +209,43 @@ if (duplicates.length > 0) {
 // === COMPARAISON AVEC ANCIENNE BASE ===
 const oldSnapshot = await getDocs(collection(db, 'establishments'))
 const oldData = oldSnapshot.docs.map((d) => d.data())
+const { added, removed, modified } = computeChangelogEntries({
+  current: deduped,
+  previous: oldData,
+  syncTimestamp,
+})
 
-const oldById = new Map(
-  oldData
-    .filter((entry): entry is { id: string } & Record<string, unknown> => Boolean(entry?.id))
-    .map((entry) => [entry.id, entry]),
+const currentRemovedIds = await getCurrentlyRemovedIds()
+const seenRemovedIds = new Set<string>()
+const freshRemoved = removed.filter((entry) => {
+  const id = typeof entry?.id === 'string' ? entry.id.trim() : null
+  if (!id) return true
+  if (currentRemovedIds.has(id) || seenRemovedIds.has(id)) {
+    return false
+  }
+  seenRemovedIds.add(id)
+  return true
+})
+const skippedRemovedCount = removed.length - freshRemoved.length
+if (skippedRemovedCount > 0) {
+  console.log(`ℹ️ ${skippedRemovedCount} suppression(s) ignorée(s) car déjà historisée(s).`)
+}
+
+console.log(
+  `🆕 ${added.length} ajout(s), ❌ ${freshRemoved.length} nouvelle(s) suppression(s), ✏️ ${modified.length} modification(s).`,
 )
-const added: any[] = []
-const removed: any[] = []
-const modified: Array<{
-  id?: string
-  before: any
-  after: any
-  changes: Array<{ field: string; before: unknown; after: unknown }>
-}> = []
-const seenIds = new Set<string>()
-
-for (const entry of deduped) {
-  const entryId = entry?.id
-  if (entryId) {
-    seenIds.add(entryId)
-  }
-
-  const previous = entryId ? oldById.get(entryId) : undefined
-  if (!previous) {
-    added.push(cloneEstablishment(entry))
-    continue
-  }
-
-  const changes = collectModificationChanges(previous, entry)
-  if (changes.length > 0) {
-    modified.push({
-      id: entryId,
-      before: cloneEstablishment(previous),
-      after: cloneEstablishment(entry),
-      changes,
-    })
-  }
-}
-
-for (const previous of oldData) {
-  const previousId = previous?.id
-  if (!previousId || seenIds.has(previousId)) continue
-  removed.push(cloneEstablishment(previous))
-}
-
-console.log(`🆕 ${added.length} ajout(s), ❌ ${removed.length} suppression(s), ✏️ ${modified.length} modification(s).`)
 
 // === CHANGELOG Firestore ===
 const changelogCol = collection(db, 'changelog')
 const changelogDoc = await addDoc(changelogCol, {
-  date: new Date().toISOString(),
+  date: syncTimestamp,
   status: 'pending',
   added,
-  removed,
+  removed: freshRemoved,
   modified,
   stats: {
     added: added.length,
-    removed: removed.length,
+    removed: freshRemoved.length,
     modified: modified.length,
     total: deduped.length,
   },
@@ -222,20 +265,36 @@ for (let i = 0; i < deduped.length; i += 500) {
   await batch.commit()
 }
 
-// 2️⃣ Sauvegarder un résumé des doublons
+// 2️⃣ Supprimer définitivement les établissements déjà marqués comme supprimés
+const removedWithIds = removed.filter(
+  (entry) => typeof entry?.id === 'string' && entry.id.trim().length > 0,
+)
+if (removedWithIds.length > 0) {
+  console.log(`🧹 Suppression de ${removedWithIds.length} établissement(s) retiré(s) de Firestore.`)
+  for (let i = 0; i < removedWithIds.length; i += 500) {
+    const batch = writeBatch(db)
+    const chunk = removedWithIds.slice(i, i + 500)
+    for (const entry of chunk) {
+      batch.delete(doc(estRef, entry.id))
+    }
+    await batch.commit()
+  }
+}
+
+// 3️⃣ Sauvegarder un résumé des doublons
 const snapshotRef = doc(dupRef, 'latest')
 await setDoc(snapshotRef, {
-  date: new Date().toISOString(),
+  date: syncTimestamp,
   count: duplicates.length,
   duplicates: duplicates,
 })
 
-// 3️⃣ Mettre à jour la meta
+// 4️⃣ Mettre à jour la meta
 await setDoc(doc(db, 'meta', 'lastRefresh'), {
-  date: new Date().toISOString(),
+  date: syncTimestamp,
   count: deduped.length,
   added: added.length,
-  removed: removed.length,
+  removed: freshRemoved.length,
   modified: modified.length,
 })
 // ✅ Mise à jour du statut après succès
@@ -244,368 +303,4 @@ await setDoc(changelogDoc, { status: 'completed' }, { merge: true })
 lastRefresh = Date.now()
 console.log('💾 Données synchronisées dans Firestore.')
 return deduped
-}
-
-// === HELPERS ===
-const HTML_ENTITY_PATTERN = /&(#(?:x[0-9a-fA-F]+|\d+)|[a-zA-Z][\w-]*);/g
-const HTML_ENTITY_MAP: Record<string, string> = {
-  amp: '&',
-  apos: "'",
-  quot: '"',
-  lt: '<',
-  gt: '>',
-  nbsp: ' ',
-  rsquo: "'",
-  lsquo: "'",
-  ldquo: '"',
-  rdquo: '"',
-  hellip: '...',
-  ndash: '-',
-  mdash: '—',
-  deg: '°',
-  euro: '€',
-  copy: '©',
-  reg: '®',
-  trade: '™',
-  laquo: '«',
-  raquo: '»',
-  agrave: 'à',
-  aacute: 'á',
-  acirc: 'â',
-  auml: 'ä',
-  aring: 'å',
-  aelig: 'æ',
-  ccedil: 'ç',
-  egrave: 'è',
-  eacute: 'é',
-  ecirc: 'ê',
-  euml: 'ë',
-  igrave: 'ì',
-  iacute: 'í',
-  icirc: 'î',
-  iuml: 'ï',
-  ograve: 'ò',
-  oacute: 'ó',
-  ocirc: 'ô',
-  otilde: 'õ',
-  ouml: 'ö',
-  oslash: 'ø',
-  ugrave: 'ù',
-  uacute: 'ú',
-  ucirc: 'û',
-  uuml: 'ü',
-  yacute: 'ý',
-  yuml: 'ÿ',
-  oelig: 'œ',
-}
-
-function decodeHtmlEntities(value: string): string {
-  return value.replace(HTML_ENTITY_PATTERN, (match, entity: string) => {
-    if (!entity) return match
-    if (entity[0] === '#') {
-      const isHex = entity[1]?.toLowerCase() === 'x'
-      const codePoint = Number.parseInt(
-        entity.slice(isHex ? 2 : 1),
-        isHex ? 16 : 10,
-      )
-      if (Number.isFinite(codePoint) && codePoint >= 0) {
-        try {
-          return String.fromCodePoint(codePoint)
-        } catch {
-          return match
-        }
-      }
-      return match
-    }
-    const replacement = HTML_ENTITY_MAP[entity.toLowerCase()]
-    return replacement ?? match
-  })
-}
-
-function sanitizeText(value: unknown): string | undefined {
-  if (typeof value === 'string') {
-    const decoded = decodeHtmlEntities(value)
-    const trimmed = decoded.trim()
-    return trimmed.length > 0 ? trimmed : undefined
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value.toString() : undefined
-  }
-  return undefined
-}
-
-function toNumberArray(value: unknown): number[] {
-  if (Array.isArray(value)) {
-    return Array.from(
-      new Set(
-        value
-          .map((v) => Number(v))
-          .filter((v) => Number.isFinite(v)),
-      ),
-    )
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? [value] : []
-  }
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value)
-    return Number.isFinite(parsed) ? [parsed] : []
-  }
-  return []
-}
-
-function toStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return Array.from(
-      new Set(
-        value
-          .map((v) => `${v}`.trim())
-          .filter((v) => v.length > 0),
-      ),
-    )
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    return trimmed.length > 0 ? [trimmed] : []
-  }
-  return []
-}
-
-function uniqueNumbers(values: number[]): number[] {
-  return Array.from(new Set(values)).sort((a, b) => a - b)
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return Array.from(new Set(values.filter((v) => v && v.length > 0)))
-}
-
-function normalizeComparableString(value: unknown): string {
-  const sanitized = sanitizeText(value)
-  if (sanitized) {
-    return sanitized.toLowerCase()
-  }
-  return ''
-}
-
-function areNumbersClose(a: unknown, b: unknown, tolerance = 0.0001): boolean {
-  const aNum = typeof a === 'number' ? a : Number(a)
-  const bNum = typeof b === 'number' ? b : Number(b)
-  const aFinite = Number.isFinite(aNum)
-  const bFinite = Number.isFinite(bNum)
-
-  if (!aFinite && !bFinite) return true
-  if (!aFinite || !bFinite) return false
-  return Math.abs(aNum - bNum) <= tolerance
-}
-
-function createDedupKey(est: any): string {
-  const latKey = Number.isFinite(est?.lat) ? est.lat.toFixed(4) : 'undefined'
-  const lngKey = Number.isFinite(est?.lng) ? est.lng.toFixed(4) : 'undefined'
-  return `${normalizeComparableString(est?.name)}|${normalizeComparableString(est?.city)}|${latKey}|${lngKey}`
-}
-
-function normalizeEstablishmentShape(est: any) {
-  const filters = toNumberArray(est?.filter)
-  const categories = toStringArray(est?.categories ?? [])
-  const latCandidate =
-    typeof est?.lat === 'number' ? est.lat : Number.parseFloat(`${est?.lat ?? ''}`)
-  const lngCandidate =
-    typeof est?.lng === 'number' ? est.lng : Number.parseFloat(`${est?.lng ?? ''}`)
-  const lat = Number.isFinite(latCandidate) ? latCandidate : undefined
-  const lng = Number.isFinite(lngCandidate) ? lngCandidate : undefined
-  const sanitizedName = sanitizeText(est?.name)
-  const sanitizedAddress = sanitizeText(est?.address)
-  const sanitizedCity = sanitizeText(est?.city)
-  const sanitizedSource = sanitizeText(est?.source)
-
-  return {
-    ...est,
-    name: sanitizedName ?? (typeof est?.name === 'number' ? String(est.name) : est?.name),
-    address: sanitizedAddress ?? est?.address,
-    city: sanitizedCity ?? est?.city,
-    source: sanitizedSource ?? est?.source,
-    lat,
-    lng,
-    filter: filters,
-    categories,
-  }
-}
-
-function shouldMergeEstablishments(existing: any, incoming: any): boolean {
-  const sameSource =
-    normalizeComparableString(existing?.source) === normalizeComparableString(incoming?.source)
-  if (!sameSource) return false
-
-  const sameName =
-    normalizeComparableString(existing?.name) === normalizeComparableString(incoming?.name)
-  if (!sameName) return false
-
-  const sameCity =
-    normalizeComparableString(existing?.city) === normalizeComparableString(incoming?.city)
-  const cityEquivalent = sameCity || !existing?.city || !incoming?.city
-
-  const sameAddress =
-    normalizeComparableString(existing?.address) === normalizeComparableString(incoming?.address)
-  const addressEquivalent = sameAddress || !existing?.address || !incoming?.address
-
-  const latClose = areNumbersClose(existing?.lat, incoming?.lat)
-  const lngClose = areNumbersClose(existing?.lng, incoming?.lng)
-
-  return cityEquivalent && addressEquivalent && latClose && lngClose
-}
-
-function mergeEstablishment(existing: any, incoming: any) {
-  const incomingNormalized = normalizeEstablishmentShape(incoming)
-
-  const mergedFilters = uniqueNumbers([
-    ...toNumberArray(existing?.filter),
-    ...incomingNormalized.filter,
-  ])
-
-  const mergedCategories = uniqueStrings([
-    ...toStringArray(existing?.categories),
-    ...incomingNormalized.categories,
-  ])
-
-  existing.filter = mergedFilters
-  existing.categories = mergedCategories
-  if (incomingNormalized.name) {
-    existing.name = incomingNormalized.name
-  }
-
-  if (!existing.address && incomingNormalized.address) {
-    existing.address = incomingNormalized.address
-  }
-  if (!existing.city && incomingNormalized.city) {
-    existing.city = incomingNormalized.city
-  }
-  if (!existing.source && incomingNormalized.source) {
-    existing.source = incomingNormalized.source
-  }
-
-  if (!Number.isFinite(existing?.lat) && Number.isFinite(incomingNormalized?.lat)) {
-    existing.lat = incomingNormalized.lat
-  }
-  if (!Number.isFinite(existing?.lng) && Number.isFinite(incomingNormalized?.lng)) {
-    existing.lng = incomingNormalized.lng
-  }
-
-  if (
-    incomingNormalized.updatedAt &&
-    (!existing.updatedAt || incomingNormalized.updatedAt > existing.updatedAt)
-  ) {
-    existing.updatedAt = incomingNormalized.updatedAt
-  }
-}
-
-function cloneEstablishment(est: any) {
-  return est ? JSON.parse(JSON.stringify(est)) : est
-}
-
-function collectModificationChanges(previous: any, next: any) {
-  const oldNormalized = normalizeEstablishmentShape(previous)
-  const newNormalized = normalizeEstablishmentShape(next)
-
-  const sanitizeChangeValue = (value: unknown) => {
-    if (Array.isArray(value)) {
-      return value.map((item) => (item === undefined ? null : item))
-    }
-    return value === undefined ? null : value
-  }
-
-  const pushChange = (
-    changes: Array<{ field: string; before: unknown; after: unknown }>,
-    field: string,
-    before: unknown,
-    after: unknown,
-  ) => {
-    changes.push({
-      field,
-      before: sanitizeChangeValue(before),
-      after: sanitizeChangeValue(after),
-    })
-  }
-
-  const changes: Array<{ field: string; before: unknown; after: unknown }> = []
-
-  if (oldNormalized.name !== newNormalized.name) {
-    pushChange(changes, 'name', oldNormalized.name, newNormalized.name)
-  }
-  if (oldNormalized.address !== newNormalized.address) {
-    pushChange(changes, 'address', oldNormalized.address, newNormalized.address)
-  }
-  if (oldNormalized.city !== newNormalized.city) {
-    pushChange(changes, 'city', oldNormalized.city, newNormalized.city)
-  }
-  if (oldNormalized.source !== newNormalized.source) {
-    pushChange(changes, 'source', oldNormalized.source, newNormalized.source)
-  }
-  if (!areNumbersClose(oldNormalized.lat, newNormalized.lat)) {
-    pushChange(changes, 'lat', oldNormalized.lat, newNormalized.lat)
-  }
-  if (!areNumbersClose(oldNormalized.lng, newNormalized.lng)) {
-    pushChange(changes, 'lng', oldNormalized.lng, newNormalized.lng)
-  }
-  if (!areStringArraysEqual(oldNormalized.categories ?? [], newNormalized.categories ?? [])) {
-    pushChange(
-      changes,
-      'categories',
-      Array.isArray(oldNormalized.categories) ? [...oldNormalized.categories] : [],
-      Array.isArray(newNormalized.categories) ? [...newNormalized.categories] : [],
-    )
-  }
-  if (!areNumberArraysEqual(oldNormalized.filter ?? [], newNormalized.filter ?? [])) {
-    pushChange(
-      changes,
-      'filter',
-      Array.isArray(oldNormalized.filter) ? [...oldNormalized.filter] : [],
-      Array.isArray(newNormalized.filter) ? [...newNormalized.filter] : [],
-    )
-  }
-
-  return changes
-}
-
-function areStringArraysEqual(a: string[], b: string[]): boolean {
-  if (a.length !== b.length) return false
-  const sortedA = [...a].sort()
-  const sortedB = [...b].sort()
-  return sortedA.every((value, index) => value === sortedB[index])
-}
-
-function areNumberArraysEqual(a: number[], b: number[]): boolean {
-  if (a.length !== b.length) return false
-  const sortedA = [...a].sort((x, y) => x - y)
-  const sortedB = [...b].sort((x, y) => x - y)
-  return sortedA.every((value, index) => value === sortedB[index])
-}
-
-function normalizeAchahada(e: any, category: string, filter: number) {
-  return {
-    id: `ach-${e.id}`,
-    name: e.store?.trim(),
-    lat: parseFloat(e.lat),
-    lng: parseFloat(e.lng),
-    address: `${e.address}, ${e.zip || ''} ${e.city || ''}`.trim(),
-    city: e.city,
-    source: 'Achahada',
-    categories: category ? [category] : [],
-    filter: Number.isFinite(filter) ? [filter] : [],
-    updatedAt: new Date().toISOString(),
-  }
-}
-
-function normalizeAvs(e: any, category: string, filter: number) {
-  return {
-    id: `avs-${e.id}`,
-    name: e.name?.trim(),
-    lat: parseFloat(e.latitude),
-    lng: parseFloat(e.longitude),
-    address: `${e.address}, ${e.zipCode || ''} ${e.city || ''}`.trim(),
-    city: e.city,
-    source: 'AVS',
-    categories: category ? [category] : [],
-    filter: Number.isFinite(filter) ? [filter] : [],
-    updatedAt: new Date().toISOString(),
-  }
 }

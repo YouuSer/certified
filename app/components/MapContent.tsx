@@ -450,7 +450,7 @@ export default function MapContent({
         const removed = latest && Array.isArray(latest.removed) ? latest.removed : []
         const normalized = removed.map((entry) => ({
           ...entry,
-          exitDate,
+          exitDate: entry?.removedAt ?? exitDate,
         }))
         
         if (!isCancelled) {

@@ -14,6 +14,9 @@ type Establishment = {
   source?: string
   categories?: string[]
   filter?: number[]
+  createdAt?: string
+  updatedAt?: string
+  removedAt?: string
 }
 
 type DuplicateSnapshot = {
