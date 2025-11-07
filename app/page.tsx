@@ -616,39 +616,40 @@ export default function Home() {
                         focusOnEstablishment(establishment)
                       }
                     }}
-                    className="group relative rounded-3xl bg-white dark:bg-[var(--dark-card)] border border-zinc-200 dark:border-[var(--dark-border)] overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/10 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
+                    className="group relative h-full rounded-3xl bg-white dark:bg-[var(--dark-card)] border border-zinc-200 dark:border-[var(--dark-border)] overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-blue-500/10 cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500"
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-                    
-                    <div className="relative p-6 space-y-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="text-lg font-semibold text-zinc-900 dark:text-white leading-tight flex-1">
-                          {establishment?.name ?? 'Nom inconnu'}
-                        </h3>
-                        <div className="flex-shrink-0">
-                          {certificationIcon ? (
-                            <span className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm dark:border-[var(--dark-border)] dark:bg-[#1e1e1e]">
-                              <img
-                                src={certificationIcon.src}
-                                alt={certificationIcon.alt}
-                                className="rounded-full object-contain"
-                              />
-                            </span>
-                          ) : (
-                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
-                              <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
-                            </span>
-                          )}
+                    <div className="relative flex h-full flex-col p-6">
+                      <div className="space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-lg font-semibold text-zinc-900 dark:text-white leading-tight flex-1">
+                            {establishment?.name ?? 'Nom inconnu'}
+                          </h3>
+                          <div className="flex-shrink-0">
+                            {certificationIcon ? (
+                              <span className="flex size-11 items-center justify-center rounded-full border border-zinc-200 bg-white shadow-sm dark:border-[var(--dark-border)] dark:bg-[#1e1e1e]">
+                                <img
+                                  src={certificationIcon.src}
+                                  alt={certificationIcon.alt}
+                                  className="rounded-full object-contain"
+                                />
+                              </span>
+                            ) : (
+                              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
+                                <svg className="h-5 w-5 text-green-600 dark:text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
                         <p className="text-sm text-zinc-600 dark:text-[var(--dark-muted)] leading-relaxed">
-                        {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
-                      </p>
+                          {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
+                        </p>
+                      </div>
 
-                      <div className="flex flex-wrap items-center gap-2 pt-2">
+                      <div className="mt-auto flex flex-wrap items-center gap-2 pt-4">
                         <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-[rgba(34,197,94,0.18)] dark:text-green-200">
                           {formattedDate}
                         </span>
@@ -713,39 +714,41 @@ export default function Home() {
                 return (
                   <div
                     key={establishment?.id ?? `${establishment?.lat}-${establishment?.lng}-${establishment?.name}-removed`}
-                    className="group relative rounded-3xl bg-white dark:bg-[var(--dark-card)] border border-red-200 dark:border-red-500/40 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-red-500/10"
+                    className="group relative h-full rounded-3xl bg-white dark:bg-[var(--dark-card)] border border-red-200 dark:border-red-500/40 overflow-hidden transition-all duration-300 hover:scale-[1.02] hover:shadow-2xl hover:shadow-red-500/10"
                   >
                     <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-orange-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
                     
-                    <div className="relative p-6 space-y-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="text-lg font-semibold text-zinc-900 dark:text-white leading-tight flex-1">
-                          {establishment?.name ?? 'Nom inconnu'}
-                        </h3>
-                        <div className="flex-shrink-0">
-                          {certificationIcon ? (
-                            <span className="flex size-11 items-center justify-center rounded-full border border-red-200 bg-white shadow-sm dark:border-red-500/50 dark:bg-[#1f1f1f]">
-                              <img
-                                src={certificationIcon.src}
-                                alt={certificationIcon.alt}
-                                className="rounded-full object-contain"
-                              />
-                            </span>
-                          ) : (
-                            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10">
-                              <svg className="w-5 h-5 text-red-600 dark:text-red-300" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                              </svg>
-                            </span>
-                          )}
+                    <div className="relative flex h-full flex-col p-6">
+                      <div className="space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <h3 className="text-lg font-semibold text-zinc-900 dark:text-white leading-tight flex-1">
+                            {establishment?.name ?? 'Nom inconnu'}
+                          </h3>
+                          <div className="flex-shrink-0">
+                            {certificationIcon ? (
+                              <span className="flex size-11 items-center justify-center rounded-full border border-red-200 bg-white shadow-sm dark:border-red-500/50 dark:bg-[#1f1f1f]">
+                                <img
+                                  src={certificationIcon.src}
+                                  alt={certificationIcon.alt}
+                                  className="rounded-full object-contain"
+                                />
+                              </span>
+                            ) : (
+                              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/10">
+                                <svg className="w-5 h-5 text-red-600 dark:text-red-300" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                                </svg>
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
                         <p className="text-sm text-zinc-600 dark:text-[var(--dark-muted)] leading-relaxed">
-                        {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
-                      </p>
+                          {establishment?.address ?? establishment?.city ?? 'Adresse inconnue'}
+                        </p>
+                      </div>
 
-                      <div className="flex flex-wrap gap-2 pt-2">
+                      <div className="mt-auto flex flex-wrap gap-2 pt-4">
                         <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium bg-red-100 text-red-700 dark:bg-[rgba(248,113,113,0.18)] dark:text-red-200">
                           Sorti : {formattedDate}
                         </span>
